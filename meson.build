@@ -31,7 +31,14 @@ xcb = dependency('xcb', required : get_option('xwayland'))
 xlibs = dependency('xcb-icccm', required : get_option('xwayland'))
 xcb_randr = dependency('xcb-randr', required : get_option('xwayland'))
 wayland_server_dep = dependency('wayland-server',version: '>=1.23.1')
-wlroots_dep = dependency('wlroots-0.20',version: '>=0.20.0')
+# Prefer the wlroots-vkfx fork when it is available: its Vulkan renderer exports
+# the render pass internals SceneFX needs for effects. Identical to the lookup
+# SceneFX itself does, so both agree on which wlroots they build against.
+wlroots_version = ['>=0.20.0', '<0.21.0']
+wlroots_dep = dependency('wlroots-vkfx-0.20', version: wlroots_version, required: false)
+if not wlroots_dep.found()
+  wlroots_dep = dependency('wlroots-0.20', version: wlroots_version)
+endif
 xkbcommon_dep = dependency('xkbcommon')
 libinput_dep = dependency('libinput',version: '>=1.27.1')
 libwayland_client_dep = dependency('wayland-client')
