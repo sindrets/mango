@@ -24,7 +24,6 @@
 #include "mango/overview/overview.h"
 #include "mango/switcher/switcher.h"
 #include <fcntl.h>
-#include <scenefx/render/fx_renderer/fx_renderer.h>
 #include <scenefx/types/fx/blur_data.h>
 #include <scenefx/types/fx/clipped_region.h>
 #include <scenefx/types/wlr_scene.h>

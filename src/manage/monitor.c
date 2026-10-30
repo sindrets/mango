@@ -23,7 +23,7 @@
 #include "mango/manage/misc.h"
 #include "mango/manage/xwayland_primary.h"
 #include <fcntl.h>
-#include <scenefx/render/fx_renderer/fx_renderer.h>
+#include <scenefx/scenefx.h>
 #include <scenefx/types/wlr_scene.h>
 #include <unistd.h>
 #include <wlr/backend.h>
@@ -1460,7 +1460,7 @@ static void do_renderer_recreate(void *data) {
 
 	server.recreate_renderer_source = NULL;
 
-	if (!(server.renderer = fx_renderer_create(server.backend)))
+	if (!(server.renderer = scenefx_init(server.scene, server.backend)))
 		die("couldn't recreate renderer");
 
 	if (!(server.allocator =

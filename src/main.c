@@ -33,7 +33,7 @@
 #include <libinput.h>
 #include <limits.h>
 #include <pthread.h>
-#include <scenefx/render/fx_renderer/fx_renderer.h>
+#include <scenefx/scenefx.h>
 #include <scenefx/types/fx/blur_data.h>
 #include <scenefx/types/fx/clipped_region.h>
 #include <scenefx/types/wlr_scene.h>
@@ -542,7 +542,7 @@ void setup(void) {
 							   &server.layers_wrap[LyrBlock]->node);
 
 	/* Create a renderer with the default implementation */
-	if (!(server.renderer = fx_renderer_create(server.backend)))
+	if (!(server.renderer = scenefx_init(server.scene, server.backend)))
 		die("couldn't create renderer");
 
 	if (server.renderer->features.input_color_transform) {
