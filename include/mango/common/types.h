@@ -49,6 +49,7 @@ struct wlr_allocator;
 struct wlr_backend;
 struct wlr_box;
 struct wlr_buffer;
+struct wlr_color_manager_v1;
 struct wlr_color_transform;
 struct wlr_compositor;
 struct wlr_cursor;

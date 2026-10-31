@@ -53,6 +53,10 @@ struct MangoServer {
 	struct wlr_renderer *renderer;
 	struct wlr_allocator *allocator;
 	struct wlr_compositor *compositor;
+	/* wp_color_manager_v1 global; NULL when the renderer has no input color
+	 * transforms. Needed to advertise a preferred image description to the
+	 * fullscreen client, which is what auto-HDR keys off. */
+	struct wlr_color_manager_v1 *color_manager;
 
 	/* wlroots globals */
 	struct wlr_xdg_shell *xdg_shell;

@@ -633,6 +633,8 @@ cJSON *build_monitor_json(Monitor *m) {
 	cJSON_AddStringToObject(resp, "name", m->wlr_output->name);
 	cJSON_AddBoolToObject(resp, "active", m == server.selected_monitor);
 	cJSON_AddBoolToObject(resp, "is_hdr", m->is_hdr_enabling);
+	/* Whether the HDR state currently in use was chosen by cm_auto_hdr. */
+	cJSON_AddBoolToObject(resp, "is_auto_hdr", m->auto_hdr_active);
 	cJSON_AddBoolToObject(resp, "is_vrr", m->is_vrr_enabling);
 	cJSON_AddNumberToObject(resp, "x", m->m.x);
 	cJSON_AddNumberToObject(resp, "y", m->m.y);

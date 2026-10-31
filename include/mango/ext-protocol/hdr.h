@@ -26,4 +26,13 @@ void output_state_setup_hdr(Monitor *m, bool silent,
 bool togglehdr_output(Monitor *target, bool want);
 int32_t toggle_hdr(const Arg *arg);
 
+/*
+ * Auto-HDR (cm_auto_hdr): switch a monitor to HDR while a fullscreen client
+ * commits an HDR image description over wp_color_manager_v1.
+ */
+bool client_advertises_hdr(Client *c);
+bool auto_hdr_apply(Monitor *m, bool want);
+void check_auto_hdr(Client *c);
+void check_auto_hdr_committed(Client *c);
+void check_auto_hdr_all(void);
 #endif

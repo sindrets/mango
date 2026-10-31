@@ -239,6 +239,8 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		config->allow_tearing = atoi(value);
 	} else if (strcmp(key, "hdr_depth") == 0) {
 		config->hdr_depth = atoi(value);
+	} else if (strcmp(key, "cm_auto_hdr") == 0) {
+		config->cm_auto_hdr = atoi(value);
 	} else if (strcmp(key, "allow_shortcuts_inhibit") == 0) {
 		config->allow_shortcuts_inhibit = atoi(value);
 	} else if (strcmp(key, "disable_middle_paste") == 0) {
@@ -1452,6 +1454,7 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		rule->no_size_hint = -1;
 		rule->idleinhibit_when_focus = -1;
 		rule->vrr_only_fullscreen = -1;
+		rule->auto_hdr = -1;
 		rule->force_render = -1;
 		rule->activation_bypass = -1;
 		rule->isterm = -1;
@@ -1572,6 +1575,8 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 					rule->idleinhibit_when_focus = atoi(val);
 				} else if (strcmp(key, "vrr_only_fullscreen") == 0) {
 					rule->vrr_only_fullscreen = atoi(val);
+				} else if (strcmp(key, "auto_hdr") == 0) {
+					rule->auto_hdr = atoi(val);
 				} else if (strcmp(key, "force_render") == 0) {
 					rule->force_render = atoi(val);
 				} else if (strcmp(key, "activation_bypass") == 0) {
@@ -2460,6 +2465,7 @@ void set_value_default() {
 	config.tag_carousel = 0;
 	config.allow_tearing = TEARING_DISABLED;
 	config.hdr_depth = MANGO_RENDER_BIT_DEPTH_10;
+	config.cm_auto_hdr = 0;
 	config.allow_shortcuts_inhibit = SHORTCUTS_INHIBIT_ENABLE;
 	config.disable_middle_paste = 0;
 	config.allow_lock_transparent = 0;
@@ -2802,6 +2808,7 @@ void override_config(void) {
 	config.drag_tile_small = CLAMP_INT(config.drag_tile_small, 0, 1);
 	config.allow_tearing = CLAMP_INT(config.allow_tearing, 0, 2);
 	config.hdr_depth = CLAMP_INT(config.hdr_depth, 0, 2);
+	config.cm_auto_hdr = CLAMP_INT(config.cm_auto_hdr, 0, 1);
 	config.allow_shortcuts_inhibit =
 		CLAMP_INT(config.allow_shortcuts_inhibit, 0, 1);
 	config.disable_middle_paste = CLAMP_INT(config.disable_middle_paste, 0, 1);

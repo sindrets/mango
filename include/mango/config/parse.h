@@ -136,6 +136,8 @@ typedef struct {
 	int32_t vrr_only_fullscreen;
 	int32_t force_render;
 	int32_t activation_bypass;
+	/* Auto-HDR opt-out for this window; -1 = unset (treated as 1). */
+	int32_t auto_hdr;
 	char *monitor;
 	int32_t offsetx;
 	int32_t offsety;
@@ -586,6 +588,9 @@ typedef struct {
 	DecorateDrawData title_message_bardata;
 
 	int32_t hdr_depth;
+	/* Auto-HDR: 0 = off, 1 = on. Switches a monitor to HDR while a fullscreen
+	 * client advertises HDR content through wp_color_manager_v1. */
+	int32_t cm_auto_hdr;
 } Config;
 
 /* Global config instance. */

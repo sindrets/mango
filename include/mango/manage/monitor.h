@@ -86,6 +86,23 @@ struct Monitor {
 	bool hdr_enable;
 	bool prefer_disable;
 	bool is_hdr_enabling;
+	/* Set while auto-HDR owns the HDR state of this output, so the state can be
+	 * restored when the fullscreen client goes away (or stops being HDR).
+	 * auto_hdr_restore is what the output reverts to. */
+	bool auto_hdr_active;
+	bool auto_hdr_restore;
+	/* Client that currently drives auto-HDR on this output, so its preferred
+	 * image description can be rolled back when it stops being the target. */
+	Client *auto_hdr_client;
+	/* Pending auto-HDR evaluation, coalesced so a burst of commits (or a
+	 * client destroying itself) never re-enters the output commit path. */
+	struct wl_event_source *auto_hdr_idle;
+	/* HDR-ness last observed on auto_hdr_client, so the per-commit hook can
+	 * skip the full evaluation while nothing changed. */
+	bool auto_hdr_client_hdr;
+	/* The HDR switch for the current client failed; do not retry it on every
+	 * frame commit the client makes. Reset when the target client changes. */
+	bool auto_hdr_failed;
 	// Mastering display metadata, in cd/m². 0 = unset, see output_enable_hdr().
 	float hdr_min_lum;
 	float hdr_max_lum;

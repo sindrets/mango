@@ -579,6 +579,7 @@ void setup(void) {
 		free(primaries);
 
 		if (cm) {
+			server.color_manager = cm;
 			wlr_scene_set_color_manager_v1(server.scene, cm);
 		} else {
 			mango_error(true, WLR_ERROR, "unable to create color manager");

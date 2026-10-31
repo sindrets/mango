@@ -8,6 +8,7 @@
 #include "mango/dispatch/bind.h"
 #include "mango/draw/title-message-bar.h"
 #include "mango/ext-protocol/foreign-toplevel.h"
+#include "mango/ext-protocol/hdr.h"
 #include "mango/ext-protocol/text-input.h"
 #include "mango/input/keyboard.h"
 #include "mango/input/pointer.h"
@@ -1534,6 +1535,7 @@ void apply_rule_properties(Client *c, const ConfigWinRule *r) {
 	APPLY_INT_PROP(c, r, no_size_hint);
 	APPLY_INT_PROP(c, r, idleinhibit_when_focus);
 	APPLY_INT_PROP(c, r, vrr_only_fullscreen);
+	APPLY_INT_PROP(c, r, auto_hdr);
 	APPLY_INT_PROP(c, r, force_render);
 	APPLY_INT_PROP(c, r, activation_bypass);
 	APPLY_INT_PROP(c, r, isunglobal);
@@ -2182,6 +2184,7 @@ void init_client_properties(Client *c) {
 	c->allow_shortcuts_inhibit = SHORTCUTS_INHIBIT_ENABLE;
 	c->idleinhibit_when_focus = 0;
 	c->vrr_only_fullscreen = 0;
+	c->auto_hdr = 1;
 	/* On unmap while in overview, destroy the card tree first to avoid a leak.
 	 */
 	overview_destroy_card(c);
@@ -2470,6 +2473,11 @@ void handle_client_commit(struct wl_listener *listener, void *data) {
 	Client *c = wl_container_of(listener, c, commit);
 	struct wlr_box *new_geo;
 
+	/* A fullscreen client that committed an HDR image description (usually in
+	 * response to the one we advertised) is what switches the output to HDR.
+	 * Run before the early returns below, which only concern geometry. */
+	check_auto_hdr_committed(c);
+
 	/* Overview card nodes are independent scene_surfaces that auto-update on
 	 * commit; nothing to handle here. */
 
@@ -2551,6 +2559,9 @@ void handle_client_unmap(struct wl_listener *listener, void *data) {
 	Monitor *m = NULL;
 	Client *nextfocus = NULL;
 	c->iskilling = 1;
+	/* Hand any auto-HDR state this client was driving back to the output
+	 * before the client is torn down. */
+	check_auto_hdr(c);
 	if (c->tab_prev || c->tab_next)
 		tab_detach_client(c);
 	switcher_remove_client(c);
@@ -2744,6 +2755,13 @@ void handle_client_destroy(struct wl_listener *listener, void *data) {
 		wl_list_remove(&c->destroy_decoration.link);
 		wl_list_remove(&c->set_decoration_mode.link);
 	}
+	/* Do not leave a dangling auto_hdr_client behind on any output. */
+	Monitor *iter = NULL;
+	wl_list_for_each(iter, &server.monitors, link) {
+		if (iter->auto_hdr_client == c)
+			iter->auto_hdr_client = NULL;
+	}
+
 	switcher_remove_client(c);
 	pointer_client_destroyed(c);
 	free(c);
@@ -2977,6 +2995,7 @@ void client_focus(Client *c, int32_t lift) {
 
 		check_keep_idle_inhibit(c);
 		check_vrr_enable(c);
+		check_auto_hdr(c);
 
 		if (last_focus_client && !last_focus_client->iskilling &&
 			last_focus_client != c) {
@@ -3068,6 +3087,7 @@ void client_focus(Client *c, int32_t lift) {
 		mango_im_relay_set_focus(server.input_method_relay, NULL);
 		wlr_seat_keyboard_notify_clear_focus(server.seat);
 		check_vrr_enable(c);
+		check_auto_hdr(c);
 		if (server.active_constraint) {
 			pointer_constrain_cursor(NULL);
 		}
@@ -3483,6 +3503,7 @@ void client_apply_fullscreen(
 
 	client_reparent_group(c);
 	check_vrr_enable(c);
+	check_auto_hdr(c);
 	check_keep_idle_inhibit(c);
 
 	if (rearrange)

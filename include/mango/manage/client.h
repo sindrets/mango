@@ -129,6 +129,9 @@ struct Client {
 		need_float_size_reduce, isminimized, isoverlay, no_size_hint,
 		ignore_maximize, ignore_minimize, idleinhibit_when_focus,
 		vrr_only_fullscreen, force_render, activation_bypass;
+	/* Opt-in/out of auto-HDR for this window (window_rule auto_hdr). Defaults
+	 * to 1: fullscreen clients that advertise HDR content switch outputs. */
+	int32_t auto_hdr;
 	int32_t ismaximizescreen;
 	int32_t overview_backup_bw;
 	int32_t fullscreen_backup_x, fullscreen_backup_y, fullscreen_backup_w,

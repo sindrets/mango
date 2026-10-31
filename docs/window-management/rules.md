@@ -42,6 +42,7 @@ window_rule_once=Parameter:Values,Parameter:Values,app_id:Values,title:Values
 | `vrr_only_fullscreen` | integer | `0` / `1` (default 0) | VRR only fullscreen,you need to turn `vrr` to `0` in monitor rule first |
 | `shield_when_capture` | integer | `0` / `1` | Shield window when captured |
 | `force_render` | integer | `0` / `1` | Force render frame even if the window is not visible |
+| `auto_hdr` | integer | `0` / `1` (default 1) | Let this window drive `cm_auto_hdr`: `0` keeps the output in its configured SDR/HDR state even when the window is fullscreen and renders HDR |
 | `activation_bypass` | integer | `0` / `1` | Bypass xdg-activation authentication: activation requests for this window are treated as authenticated, so the normal activation behavior applies regardless of token validity |
 
 

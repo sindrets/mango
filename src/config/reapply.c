@@ -236,6 +236,11 @@ void reapply_monitor_rules(void) {
 			/* No rule matches: same default as a new output, enabled. */
 			wlr_output_state_set_enabled(&m->pending, true);
 
+		/* The rule is authoritative now; drop any auto-HDR ownership so a
+		 * later restore cannot clobber the configured HDR state. */
+		m->auto_hdr_active = false;
+		m->auto_hdr_client = NULL;
+
 		/* Enable the output first so it can safely enter the layout:
 		 * adding a still-disabled output re-enters
 		 * handle_output_layout_change and crashes. */
@@ -284,6 +289,9 @@ void reapply_monitor_rules(void) {
 		wlr_output_effective_resolution(m->wlr_output, &m->m.width,
 										&m->m.height);
 	}
+
+	/* Re-advertise to whatever fullscreen client is now on each output. */
+	check_auto_hdr_all();
 
 	handle_output_layout_change(NULL, NULL);
 }

@@ -656,6 +656,12 @@ void handle_new_output(struct wl_listener *listener, void *data) {
 	m->hdr_enable = false;
 	m->prefer_disable = false;
 	m->is_hdr_enabling = false;
+	m->auto_hdr_active = false;
+	m->auto_hdr_restore = false;
+	m->auto_hdr_client = NULL;
+	m->auto_hdr_idle = NULL;
+	m->auto_hdr_client_hdr = false;
+	m->auto_hdr_failed = false;
 	m->hdr_min_lum = 0.0f;
 	m->hdr_max_lum = 0.0f;
 	m->hdr_max_avg_lum = 0.0f;
@@ -903,6 +909,12 @@ void handle_output_destroy(struct wl_listener *listener, void *data) {
 	wlr_ext_workspace_group_handle_v1_output_leave(m->ext_group, m->wlr_output);
 	wlr_ext_workspace_group_handle_v1_destroy(m->ext_group);
 	cleanup_workspaces_by_monitor(m);
+	/* A queued auto-HDR evaluation holds a Monitor pointer. */
+	if (m->auto_hdr_idle) {
+		wl_event_source_remove(m->auto_hdr_idle);
+		m->auto_hdr_idle = NULL;
+	}
+	m->auto_hdr_client = NULL;
 
 	wl_list_remove(&m->destroy.link);
 	wl_list_remove(&m->frame.link);
