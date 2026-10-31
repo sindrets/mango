@@ -226,6 +226,15 @@ Notes:
   remembers that base state and returns to it. `togglehdr` takes the output back
   from auto HDR: after a manual toggle, auto HDR stays out of the way until the
   next fullscreen state change.
+- A client only asks for HDR when it believes the output can show it. Players such
+  as mpv derive that from the image description the compositor advertises on the
+  surface, so a player configured to pin its mode to the video source (`mpv`
+  `--target-colorspace-hint-mode=source`) declares HDR to the compositor even
+  while windowed. On an SDR output that window is tone mapped down from PQ and
+  looks dark, and the level does not change when fullscreen switches the output.
+  The default `--target-colorspace-hint-mode=target` follows the advertised
+  description instead, which keeps the window SDR until it is fullscreen and
+  auto HDR takes over.
 - A window can opt out with the `auto_hdr:0` window rule, see
   [Window Rules](/docs/window-management/rules).
 
