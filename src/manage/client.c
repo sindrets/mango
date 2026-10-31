@@ -2755,12 +2755,17 @@ void handle_client_destroy(struct wl_listener *listener, void *data) {
 		wl_list_remove(&c->destroy_decoration.link);
 		wl_list_remove(&c->set_decoration_mode.link);
 	}
-	/* Do not leave a dangling auto_hdr_client behind on any output. */
+	/* Do not leave a dangling auto_hdr_client behind on any output, and let
+	 * the outputs it was driving re-evaluate. auto_hdr_active stays set so
+	 * the deferred pass below still sees an output that needs restoring;
+	 * switching HDR right here would run an output commit in the middle of
+	 * client teardown. */
 	Monitor *iter = NULL;
 	wl_list_for_each(iter, &server.monitors, link) {
 		if (iter->auto_hdr_client == c)
 			iter->auto_hdr_client = NULL;
 	}
+	check_auto_hdr(c);
 
 	switcher_remove_client(c);
 	pointer_client_destroyed(c);

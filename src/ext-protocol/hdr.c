@@ -10,6 +10,32 @@ static uint32_t output_formats_10bit[8];
 #include "mango/common/log.h"
 #include "mango/common/server.h"
 #include "mango/manage/monitor.h"
+#include <stdlib.h>
+#include <unistd.h>
+
+/*
+ * Auto-HDR tracing, opt-in through $MANGO_DEBUG_AUTO_HDR.
+ *
+ * The failure this exists for cannot be observed from outside the compositor:
+ * the DRM connector can be back on plain SDR while the scene still renders
+ * through the PQ color transform, so the screen shows lifted blacks and halved
+ * contrast that a screenshot reproduces but DRM state does not explain. Tracing
+ * each transition is the only way to see which side disagreed.
+ */
+static bool auto_hdr_trace_enabled(void) {
+	if (getenv("MANGO_DEBUG_AUTO_HDR") != NULL)
+		return true;
+	/* The session is started by the display manager, so its environment cannot
+	 * be set from a shell. A marker file makes the trace switchable without
+	 * restarting the compositor. Only consulted on state transitions. */
+	return access("/tmp/mango-autohdr.trace", F_OK) == 0;
+}
+
+#define AUTO_HDR_TRACE(fmt, ...)                                               \
+	do {                                                                       \
+		if (auto_hdr_trace_enabled())                                          \
+			mango_error(true, WLR_ERROR, "autohdr: " fmt, ##__VA_ARGS__);      \
+	} while (0)
 
 bool output_set_render_format(Monitor *m, uint32_t candidates[], size_t count,
 							  struct wlr_output_state *state) {
@@ -63,8 +89,12 @@ bool output_supports_hdr(const Monitor *m, const char **reason) {
 }
 void output_enable_hdr(Monitor *m, struct wlr_output_state *os, bool enabled,
 					   bool silent) {
-	if (!m->is_hdr_enabling && !enabled)
-		return;
+	/* Never short-circuit the disable path. wlroots only recomputes the scene
+	 * colour transform for commits that carry
+	 * WLR_OUTPUT_STATE_IMAGE_DESCRIPTION, so a scene still holding the PQ
+	 * transform would keep encoding every frame for HDR on a connector that
+	 * already went back to SDR. Clearing an already-clear description is
+	 * harmless, so disable always does the work. */
 
 	if (!output_supports_hdr(m, NULL)) {
 		m->is_hdr_enabling = false;
@@ -78,6 +108,14 @@ void output_enable_hdr(Monitor *m, struct wlr_output_state *os, bool enabled,
 				mango_error(true, WLR_DEBUG, "Disabling HDR on output %s",
 							m->wlr_output->name);
 			wlr_output_state_set_image_description(os, NULL);
+			AUTO_HDR_TRACE("%s disable: clear image description (had=%p)",
+						   m->wlr_output->name,
+						   (void *)m->wlr_output->image_description);
+		} else {
+			AUTO_HDR_TRACE("%s disable: output has no colour support, "
+						   "description NOT cleared (had=%p)",
+						   m->wlr_output->name,
+						   (void *)m->wlr_output->image_description);
 		}
 		m->is_hdr_enabling = false;
 		return;
@@ -161,7 +199,15 @@ bool togglehdr_output(Monitor *target, bool want) {
 	if (!target || !target->wlr_output->enabled || !target->scene_output)
 		return false;
 
-	if (want == target->hdr_enable)
+	/* Only "already in HDR" is a true no-op. Leaving HDR is always performed,
+	 * even when the bookkeeping flags already say SDR: the output can have
+	 * gone back to SDR on the connector while the scene still holds the PQ
+	 * colour transform, in which case every later frame keeps being encoded
+	 * for HDR and the screen stays washed out until something forces a real
+	 * commit that carries WLR_OUTPUT_STATE_IMAGE_DESCRIPTION. Clearing an
+	 * already-clear description is idempotent, so this costs one commit on a
+	 * redundant `togglehdr off` and guarantees the recovery path works. */
+	if (want && want == target->hdr_enable)
 		return false;
 
 	// Check before mutating, so a refusal leaves the state untouched. This is
@@ -186,6 +232,11 @@ bool togglehdr_output(Monitor *target, bool want) {
 	else
 		output_enable_hdr(target, &target->pending, false, false);
 
+	AUTO_HDR_TRACE("%s toggle %s: committed=0x%x img_desc=%p hdr_enable=%d ",
+				   target->wlr_output->name, want ? "on" : "off",
+				   target->pending.committed,
+				   (void *)target->pending.image_description,
+				   target->hdr_enable);
 	// wlroots damages the whole output for a geometry, transform, scale or
 	// rendered gamma LUT change, but not for an image description change, which
 	// also changes how every pixel is encoded. Without this, anything left
