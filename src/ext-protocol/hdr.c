@@ -248,7 +248,11 @@ bool togglehdr_output(Monitor *target, bool want) {
 	// such a commit unless the disruption is explicitly allowed.
 	target->pending.allow_reconfiguration = true;
 
-	if (!mango_scene_output_commit(target->scene_output, &target->pending)) {
+	bool ok = mango_scene_output_commit(target->scene_output, &target->pending);
+	AUTO_HDR_TRACE(
+		"%s commit ok=%d out_desc=%p hdr_enable=%d", target->wlr_output->name,
+		ok, (void *)target->wlr_output->image_description, target->hdr_enable);
+	if (!ok) {
 		wlr_log(WLR_ERROR, "togglehdr: commit failed on %s, reverting",
 				target->wlr_output->name);
 		target->hdr_enable = prev_enable;
