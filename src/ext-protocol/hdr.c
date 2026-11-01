@@ -10,33 +10,6 @@ static uint32_t output_formats_10bit[8];
 #include "mango/common/log.h"
 #include "mango/common/server.h"
 #include "mango/manage/monitor.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-/*
- * Auto-HDR tracing, opt-in through the /tmp/mango-autohdr.trace marker file.
- *
- * The compositor's stderr is the display manager's tty, not a readable log, so
- * the trace writes straight to its own file. A marker file rather than an
- * environment variable, because a session started by a display manager has an
- * environment that cannot be set from a shell.
- */
-static bool auto_hdr_trace_enabled(void) {
-	return access("/tmp/mango-autohdr.trace", F_OK) == 0;
-}
-
-#define AUTO_HDR_TRACE(fmt, ...)                                               \
-	do {                                                                       \
-		if (auto_hdr_trace_enabled()) {                                        \
-			FILE *auto_hdr_trace_file = fopen("/tmp/mango-autohdr.log", "a");  \
-			if (auto_hdr_trace_file) {                                         \
-				fprintf(auto_hdr_trace_file,                                   \
-						"autohdr: " fmt "\n", ##__VA_ARGS__);                  \
-				fclose(auto_hdr_trace_file);                                   \
-			}                                                                  \
-		}                                                                      \
-	} while (0)
-
 bool output_set_render_format(Monitor *m, uint32_t candidates[], size_t count,
 							  struct wlr_output_state *state) {
 	for (size_t i = 0; i < count; i++) {
@@ -108,14 +81,6 @@ void output_enable_hdr(Monitor *m, struct wlr_output_state *os, bool enabled,
 				mango_error(true, WLR_DEBUG, "Disabling HDR on output %s",
 							m->wlr_output->name);
 			wlr_output_state_set_image_description(os, NULL);
-			AUTO_HDR_TRACE("%s disable: clear image description (had=%p)",
-						   m->wlr_output->name,
-						   (void *)m->wlr_output->image_description);
-		} else {
-			AUTO_HDR_TRACE("%s disable: output has no colour support, "
-						   "description NOT cleared (had=%p)",
-						   m->wlr_output->name,
-						   (void *)m->wlr_output->image_description);
 		}
 		m->is_hdr_enabling = false;
 		return;
@@ -232,11 +197,6 @@ bool togglehdr_output(Monitor *target, bool want) {
 	else
 		output_enable_hdr(target, &target->pending, false, false);
 
-	AUTO_HDR_TRACE("%s toggle %s: committed=0x%x img_desc=%p hdr_enable=%d ",
-				   target->wlr_output->name, want ? "on" : "off",
-				   target->pending.committed,
-				   (void *)target->pending.image_description,
-				   target->hdr_enable);
 	// wlroots damages the whole output for a geometry, transform, scale or
 	// rendered gamma LUT change, but not for an image description change, which
 	// also changes how every pixel is encoded. Without this, anything left
@@ -248,11 +208,7 @@ bool togglehdr_output(Monitor *target, bool want) {
 	// such a commit unless the disruption is explicitly allowed.
 	target->pending.allow_reconfiguration = true;
 
-	bool ok = mango_scene_output_commit(target->scene_output, &target->pending);
-	AUTO_HDR_TRACE(
-		"%s commit ok=%d out_desc=%p hdr_enable=%d", target->wlr_output->name,
-		ok, (void *)target->wlr_output->image_description, target->hdr_enable);
-	if (!ok) {
+	if (!mango_scene_output_commit(target->scene_output, &target->pending)) {
 		wlr_log(WLR_ERROR, "togglehdr: commit failed on %s, reverting",
 				target->wlr_output->name);
 		target->hdr_enable = prev_enable;
@@ -518,9 +474,8 @@ bool auto_hdr_apply(Monitor *m, bool want) {
 		return false;
 
 	if (!want) {
-		/* Give the output back to whatever it was doing before. Guarded on
-		 * ownership, not on the output being in HDR: a user who turned HDR on
-		 * by hand must keep it when a fullscreen client comes and goes. */
+		/* Give the output back to whatever it was doing before.
+		 * auto_hdr_restore is only meaningful while we own the state. */
 		if (!m->auto_hdr_active)
 			return false;
 		bool restore = m->auto_hdr_restore;
@@ -555,11 +510,11 @@ bool auto_hdr_apply(Monitor *m, bool want) {
  *
  * Two rules drive the ordering here:
  *
- *  - The preferred description is advertised before the output is switched,
- *    so a client that is willing to go HDR does so on its next commit. The
- *    switch itself is driven by what the client *committed*, not by what we
- *    advertised: a client that ignores the advertisement stays SDR instead
- *    of getting a PQ output showing SDR content.
+ * - The preferred description is advertised before the output is switched, so
+ *   a client that is willing to go HDR does so on its next commit. The switch
+ *   itself is driven by what the client *committed*, not by what we
+ *   advertised: a client that ignores the advertisement stays SDR instead of
+ *   getting a PQ output showing SDR content.
  * - The advertisement is rolled back after the output has left HDR, so the
  *   rollback is not itself a PQ advertisement.
  */
@@ -568,30 +523,24 @@ static void check_auto_hdr_monitor(Monitor *m) {
 		return;
 
 	/* Only advertise HDR to a client whose output we can actually switch;
-	 * advertising PQ on an output that stays SDR would make the client
-	 * render HDR into an SDR pipe. */
+	 * advertising PQ on an output that stays SDR would make the client render
+	 * HDR into an SDR pipe. */
 	bool enabled = config.cm_auto_hdr && output_supports_hdr(m, NULL);
 	Client *target = enabled ? auto_hdr_target_client(m) : NULL;
 	Client *prev = m->auto_hdr_client;
-
-	AUTO_HDR_TRACE("%s eval: cfg=%d target=%p prev=%p active=%d "
-				   "hdr_enable=%d hdr_client_hdr=%d",
-				   m->wlr_output->name, config.cm_auto_hdr, (void *)target,
-				   (void *)prev, m->auto_hdr_active, m->hdr_enable,
-				   m->auto_hdr_client_hdr);
 
 	/* A different client gets a fresh attempt at switching the output. */
 	if (prev != target)
 		m->auto_hdr_failed = false;
 	m->auto_hdr_client = target;
+
 	bool want = false;
 	if (target) {
 		client_set_preferred_description(target, m, true);
-		/* The client reacts to the advertisement on its own schedule: it
-		 * has to round-trip through its event loop and commit again. The
-		 * HDR switch therefore also happens from
-		 * check_auto_hdr_committed(); what the client committed is the
-		 * truth. */
+		/* The client reacts to the advertisement on its own schedule: it has
+		 * to round-trip through its event loop and commit again. The HDR
+		 * switch therefore also happens from check_auto_hdr_committed();
+		 * what the client committed is the truth. */
 		want = client_advertises_hdr(target);
 		m->auto_hdr_client_hdr = want;
 	}
@@ -606,14 +555,12 @@ static void check_auto_hdr_monitor(Monitor *m) {
 	} else if (m->auto_hdr_active) {
 		/* Leave HDR first: the rollback below must not be a PQ
 		 * advertisement. */
-		AUTO_HDR_TRACE("%s eval: leaving HDR (restore=%d)", m->wlr_output->name,
-					   m->auto_hdr_restore);
 		auto_hdr_apply(m, false);
 	}
 
-	/* Roll back the advertisement for a client that stopped being the
-	 * target (unfocused, unfullscreened, ...): otherwise it keeps rendering
-	 * PQ into an output that is no longer in HDR. */
+	/* Roll back the advertisement for a client that stopped being the target
+	 * (unfocused, unfullscreened, ...): otherwise it keeps rendering PQ into
+	 * an output that is no longer in HDR. */
 	if (prev && prev != target && !prev->iskilling)
 		client_set_preferred_description(prev, m, false);
 }
@@ -621,12 +568,11 @@ static void check_auto_hdr_monitor(Monitor *m) {
 /*
  * Auto-HDR is evaluated from an idle callback rather than inline.
  *
- * Checkpoints (client commit, focus, fullscreen change, unmap) can fire
- * while wlroots is in the middle of committing a surface, and switching HDR
- * runs a full output commit. Doing that from inside a surface commit
- * handler would re-enter the scene commit machinery; deferring also
- * coalesces the burst of commits a client produces when it reacts to our
- * advertisement.
+ * Checkpoints (client commit, focus, fullscreen change, unmap) can fire while
+ * wlroots is in the middle of committing a surface, and switching HDR runs a
+ * full output commit. Doing that from inside a surface commit handler would
+ * re-enter the scene commit machinery; deferring also coalesces the burst of
+ * commits a client produces when it reacts to our advertisement.
  */
 static void auto_hdr_idle(void *data) {
 	Monitor *m = data;
@@ -645,12 +591,10 @@ static void auto_hdr_idle(void *data) {
 	if (!found)
 		return;
 
-	AUTO_HDR_TRACE("%s idle: running deferred evaluation", m->wlr_output->name);
 	check_auto_hdr_monitor(m);
 }
 
-/* Queues an evaluation for one output; a no-op when it is already queued.
- */
+/* Queues an evaluation for one output; a no-op when it is already queued. */
 static void schedule_auto_hdr(Monitor *m) {
 	if (!m || !m->wlr_output->enabled || m->auto_hdr_idle)
 		return;
@@ -658,8 +602,7 @@ static void schedule_auto_hdr(Monitor *m) {
 		wl_event_loop_add_idle(server.event_loop, auto_hdr_idle, m);
 }
 
-/* Called from the focus / fullscreen paths, mirroring check_vrr_enable().
- */
+/* Called from the focus / fullscreen paths, mirroring check_vrr_enable(). */
 void check_auto_hdr(Client *c) {
 	Monitor *m = c && c->mon ? c->mon : server.selected_monitor;
 
@@ -684,16 +627,16 @@ void check_auto_hdr_committed(Client *c) {
 
 	Monitor *m = c->mon;
 
-	/* Nobody cares unless this client is the auto-HDR target (which
-	 * requires it to be fullscreen), or it is fullscreen and just went HDR
-	 * -- the latter is what promotes it to target. */
+	/* Nobody cares unless this client is the auto-HDR target (which requires
+	 * it to be fullscreen), or it is fullscreen and just went HDR -- the
+	 * latter is what promotes it to target. */
 	if (m->auto_hdr_client != c && !(c->isfullscreen && VISIBLEON(c, m)))
 		return;
 
-	/* Cheap early-out: clients commit on every frame, while a full
-	 * evaluation walks the surface tree and may re-advertise. Only
-	 * re-evaluate when the HDR-ness of the committed description changed,
-	 * or when the output state does not match it yet. */
+	/* Cheap early-out: clients commit on every frame, while a full evaluation
+	 * walks the surface tree and may re-advertise. Only re-evaluate when the
+	 * HDR-ness of the committed description changed, or when the output state
+	 * does not match it yet. */
 	bool hdr = client_advertises_hdr(c);
 	if (m->auto_hdr_client == c) {
 		/* Settled when the output state already matches the committed
