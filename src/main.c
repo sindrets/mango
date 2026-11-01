@@ -560,12 +560,17 @@ void setup(void) {
 															  &primaries_len);
 
 		struct wlr_color_manager_v1 *cm = wlr_color_manager_v1_create(
-			server.display, 2,
+			server.display, 3,
 			&(struct wlr_color_manager_v1_options){
 				.features =
 					{
 						.parametric = true,
 						.set_mastering_display_primaries = true,
+						/* wine's Wayland driver only takes the HDR present
+						 * path when it can create these two fixed
+						 * descriptions, so DXVK games need them. */
+						.windows_scrgb = true,
+						.windows_bt2100 = true,
 					},
 				.render_intents = render_intents,
 				.render_intents_len = ARRAY_SIZE(render_intents),
