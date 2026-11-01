@@ -35,4 +35,6 @@ bool auto_hdr_apply(Monitor *m, bool want);
 void check_auto_hdr(Client *c);
 void check_auto_hdr_committed(Client *c);
 void check_auto_hdr_all(void);
+/* wlr_color_manager_v1.events.client_wants_hdr handler; see hdr.c. */
+void hdr_handle_client_wants_hdr(struct wl_listener *listener, void *data);
 #endif

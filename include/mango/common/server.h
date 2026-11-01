@@ -57,6 +57,9 @@ struct MangoServer {
 	 * transforms. Needed to advertise a preferred image description to the
 	 * fullscreen client, which is what auto-HDR keys off. */
 	struct wlr_color_manager_v1 *color_manager;
+	/* Fires when a client asks for a Windows HDR description, i.e. before it
+	 * creates its swapchain. */
+	struct wl_listener color_client_wants_hdr;
 
 	/* wlroots globals */
 	struct wlr_xdg_shell *xdg_shell;

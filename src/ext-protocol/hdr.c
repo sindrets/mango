@@ -4,6 +4,7 @@
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_output.h>
 #include <wlr/types/wlr_scene.h>
+#include <wlr/types/wlr_xdg_shell.h>
 
 static uint32_t output_formats_8bit[10];
 static uint32_t output_formats_10bit[8];
@@ -373,6 +374,26 @@ client_image_description(Client *c) {
 	return lookup.desc;
 }
 
+/* Whether the client asked for one of the Windows HDR descriptions. Wine-style
+ * clients do this at startup, before they create any swapchain, because it is
+ * how they find out whether the compositor can take HDR at all. That makes it
+ * the only signal available early enough to switch the output before the
+ * client fixes its swapchain's colour space.
+ *
+ * A client that never asks is not switched pre-emptively: it would render SDR
+ * into a PQ pipe. */
+static bool client_wants_hdr(Client *c) {
+	if (!c || client_is_x11(c))
+		return false;
+
+	struct wlr_surface *root = client_surface(c);
+	if (!root || root->resource == NULL || !server.color_manager)
+		return false;
+
+	struct wl_client *client = wl_resource_get_client(root->resource);
+	return wlr_color_manager_v1_client_wants_hdr(server.color_manager, client);
+}
+
 bool client_advertises_hdr(Client *c) {
 	const struct wlr_image_description_v1_data *desc =
 		client_image_description(c);
@@ -529,10 +550,29 @@ static void check_auto_hdr_monitor(Monitor *m) {
 	Client *target = enabled ? auto_hdr_target_client(m) : NULL;
 	Client *prev = m->auto_hdr_client;
 
-	/* A different client gets a fresh attempt at switching the output. */
-	if (prev != target)
+	/* A different client gets a fresh attempt at switching the output, and
+	 * the pre-emptive decision belongs to the client that caused it: without
+	 * clearing it here, the flag would outlive the client that set it and
+	 * every later evaluation would keep re-applying HDR. */
+	if (prev != target) {
 		m->auto_hdr_failed = false;
+		m->auto_hdr_preswap = false;
+	}
 	m->auto_hdr_client = target;
+
+	/* Switch the output *before* the client creates its swapchain. A client
+	 * that asks for a Windows HDR description is about to create one, and
+	 * Mesa fixes the swapchain's colour space and format once, at creation.
+	 * Switching afterwards leaves the client waiting on a present that never
+	 * completes, so the output goes HDR because the client may render HDR,
+	 * not because it already said so. check_auto_hdr_committed() retracts
+	 * that as soon as the client commits a description of its own.
+	 *
+	 * Not latched to the target: a client asks a moment after its window
+	 * appears, so the capability can turn true on a later evaluation of the
+	 * same target. */
+	if (target && !m->auto_hdr_preswap && client_wants_hdr(target))
+		m->auto_hdr_preswap = true;
 
 	bool want = false;
 	if (target) {
@@ -545,7 +585,11 @@ static void check_auto_hdr_monitor(Monitor *m) {
 		m->auto_hdr_client_hdr = want;
 	}
 
-	if (want) {
+	/* The pre-emptive flag only ever applies to a client that is still the
+	 * target. Without this guard the flag outlives its client -- a manual
+	 * toggle or the client exiting leaves it set, and every later evaluation
+	 * would switch the output back to HDR. */
+	if (target && (want || m->auto_hdr_preswap)) {
 		auto_hdr_apply(m, true);
 		if (!m->hdr_enable)
 			/* The output rejected the switch (unsupported, or the commit
@@ -602,6 +646,36 @@ static void schedule_auto_hdr(Monitor *m) {
 		wl_event_loop_add_idle(server.event_loop, auto_hdr_idle, m);
 }
 
+/* A client that just asked for a Windows HDR description is about to create its
+ * swapchain. Switching the output now means the swapchain is created against
+ * the HDR parameters; switching it after the fact leaves the client waiting on
+ * a present that never completes. */
+void hdr_handle_client_wants_hdr(struct wl_listener *listener, void *data) {
+	struct wl_client *client = data;
+	pid_t pid = 0;
+
+	if (client == NULL || !server.color_manager)
+		return;
+	wl_client_get_credentials(client, &pid, NULL, NULL);
+	if (pid <= 0)
+		return;
+
+	Client *c = NULL;
+	wl_list_for_each(c, &server.clients, link) {
+		pid_t cpid = 0;
+
+		if (!c || c->iskilling || !c->mon || client_is_x11(c) ||
+			!c->surface.xdg)
+			continue;
+		wl_client_get_credentials(c->surface.xdg->client->client, &cpid, NULL,
+								  NULL);
+		if (cpid == pid) {
+			schedule_auto_hdr(c->mon);
+			return;
+		}
+	}
+}
+
 /* Called from the focus / fullscreen paths, mirroring check_vrr_enable(). */
 void check_auto_hdr(Client *c) {
 	Monitor *m = c && c->mon ? c->mon : server.selected_monitor;
@@ -644,6 +718,12 @@ void check_auto_hdr_committed(Client *c) {
 		if (hdr == m->auto_hdr_client_hdr &&
 			(m->hdr_enable == hdr || m->auto_hdr_failed))
 			return;
+		/* The client committed a description, so the guess is over: from
+		 * here on the committed description decides. A description that
+		 * disagrees with the guess rolls the output back, but not from
+		 * here -- this runs inside a surface commit, and the idle
+		 * evaluation is what commits outputs. */
+		m->auto_hdr_preswap = false;
 		m->auto_hdr_client_hdr = hdr;
 	} else if (!hdr)
 		return;

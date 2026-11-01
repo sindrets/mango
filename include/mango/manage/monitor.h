@@ -103,6 +103,12 @@ struct Monitor {
 	/* The HDR switch for the current client failed; do not retry it on every
 	 * frame commit the client makes. Reset when the target client changes. */
 	bool auto_hdr_failed;
+	/* The client takes part in wp_color_manager_v1, so it is worth advertising
+	 * an HDR target to it before it has committed a description of its own.
+	 * This is what lets the output be switched before the client creates its
+	 * swapchain: a swapchain created against SDR parameters does not survive
+	 * the output being switched underneath it. */
+	bool auto_hdr_preswap;
 	// Mastering display metadata, in cd/m². 0 = unset, see output_enable_hdr().
 	float hdr_min_lum;
 	float hdr_max_lum;
