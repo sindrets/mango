@@ -198,6 +198,13 @@ With `cm_auto_hdr:1`, an output switches to HDR while a fullscreen client plays
 HDR content, and switches back when that window leaves fullscreen, stops playing
 HDR, or closes.
 
+The switch happens as soon as the client says it can render HDR, before it
+presents the first frame. Switching later does not work: the graphics driver
+picks the swapchain's colour format once, when the client creates it, so a
+client that started out in SDR and gets HDR afterwards may freeze. A client
+that announces HDR but then renders SDR anyway makes the output flash HDR for a
+moment before it switches back.
+
 | Setting | Default | Description |
 | :--- | :--- | :--- |
 | `cm_auto_hdr` | `0` | `1` switches a monitor to HDR for fullscreen HDR clients. |
