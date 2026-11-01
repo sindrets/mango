@@ -248,8 +248,11 @@ int32_t toggle_hdr(const Arg *arg) {
 		}
 
 		wl_list_for_each(m, &server.monitors, link) {
-			/* A manual toggle takes the output back from auto-HDR, otherwise
-			 * the next fullscreen HDR client would silently undo it. */
+			/* Take the output back from auto-HDR. This does not hold:
+			 * a fullscreen HDR client is re-evaluated on its next
+			 * commit (or on a focus change) and auto-HDR switches the
+			 * output again. Opt such a window out with the auto_hdr:0
+			 * window rule instead. */
 			m->auto_hdr_active = false;
 			m->auto_hdr_client = NULL;
 			togglehdr_output(m, want);
@@ -278,7 +281,8 @@ int32_t toggle_hdr(const Arg *arg) {
 	if (!target)
 		return 0;
 
-	/* A manual toggle takes the output back from auto-HDR. */
+	/* Take the output back from auto-HDR; see the note above for why a
+	 * fullscreen HDR client can reclaim it. */
 	target->auto_hdr_active = false;
 	target->auto_hdr_client = NULL;
 
