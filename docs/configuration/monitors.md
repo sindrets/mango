@@ -194,18 +194,9 @@ Vulkan renderer, so `WLR_RENDERER=vulkan` is still required.
 
 ### Auto HDR (`cm_auto_hdr`)
 
-`cm_auto_hdr:1` switches an output into HDR while a fullscreen client is
-actually rendering HDR content, and back out of it when that client leaves
-fullscreen, loses HDR, or goes away — the equivalent of Hyprland's
-`render:cm_auto_hdr`.
-
-There is no protocol message that says "this window wants HDR". The request is
-the image description the client commits through `wp_color_manager_v1`: a
-fullscreen surface that commits ST2084 (PQ), HLG, or extended-linear sRGB
-(scRGB) is asking for HDR. mango therefore also advertises, over
-`wp_color_management_surface_feedback_v1`, the HDR description the output would
-use — which is what makes gamescope and similar clients start rendering PQ in
-the first place.
+With `cm_auto_hdr:1`, an output switches to HDR while a fullscreen client plays
+HDR content, and switches back when that window leaves fullscreen, stops playing
+HDR, or closes.
 
 | Setting | Default | Description |
 | :--- | :--- | :--- |
@@ -215,28 +206,20 @@ the first place.
 cm_auto_hdr=1
 ```
 
-Notes:
-
-- Only clients that bind `wp_color_management_surface_feedback_v1` can react to
-  the advertisement; a client that ignores it keeps rendering SDR and the
-  output stays SDR, so this is safe to leave enabled for mixed use.
 - The output must pass the same checks as `hdr:1` (see above), including
-  `hdr_max_lum`/`hdr_max_avg_lum` if you want the metadata advertised too.
-- `monitor_rule=...,hdr:1` (or `hdr:0`) still sets the *base* state. Auto HDR
-  remembers that base state and returns to it. `togglehdr` takes the output back
-  from auto HDR: after a manual toggle, auto HDR stays out of the way until the
-  next fullscreen state change.
-- A client only asks for HDR when it believes the output can show it. Players such
-  as mpv derive that from the image description the compositor advertises on the
-  surface, so a player configured to pin its mode to the video source (`mpv`
-  `--target-colorspace-hint-mode=source`) declares HDR to the compositor even
-  while windowed. On an SDR output that window is tone mapped down from PQ and
-  looks dark, and the level does not change when fullscreen switches the output.
-  The default `--target-colorspace-hint-mode=target` follows the advertised
-  description instead, which keeps the window SDR until it is fullscreen and
-  auto HDR takes over.
-- A window can opt out with the `auto_hdr:0` window rule, see
+  `hdr_max_lum`/`hdr_max_avg_lum` if you want the metadata sent too.
+- `monitor_rule=...,hdr:1` (or `hdr:0`) sets the *base* state that auto HDR
+  returns to.
+- A fullscreen HDR client keeps the output in HDR, so `togglehdr` does not
+  override it. Use the `auto_hdr:0` window rule to opt such a window out, see
   [Window Rules](/docs/window-management/rules).
+- Clients that do not support HDR keep rendering SDR and the output stays SDR,
+  so this is safe to leave on.
+
+> **Note:** If HDR content seems to have incorrect tone mapping while the
+> output is still in SDR, the player might be forcing HDR onto an SDR monitor.
+> I.e. mpv does that when `--target-colorspace-hint-mode` is set to `source`;
+> the default, `target`, lets the monitor decide instead.
 
 ### Configuration
 
