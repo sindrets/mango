@@ -129,17 +129,41 @@ build_dep() {
 		|| die "build failed for $name (see $log)"
 }
 
-build_dep "$WLR_DIR" wlroots
-build_dep "$SFX_DIR" scenefx
-
 # --- point pkg-config at the uninstalled trees ------------------------------
 #
-# Order matters: both trees provide a wlroots pkg-config file, and the fork
-# installs it as wlroots-vkfx-0.20. meson.build prefers that name, so having
-# the fork's directory first is what makes it win over a system wlroots.
+# This has to happen BEFORE the dependencies are configured. scenefx looks for
+# the fork's wlroots-vkfx-<version> pkg-config name and falls back to a system
+# wlroots-<version> when it cannot find it.
 
 PKG_CONFIG_PATH="$WLR_DIR/build/meson-uninstalled:$SFX_DIR/build/meson-uninstalled${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 export PKG_CONFIG_PATH
+
+build_dep "$WLR_DIR" wlroots
+build_dep "$SFX_DIR" scenefx
+
+# --- check the dependencies really did pick the fork ------------------------
+#
+# meson caches its dependency choices, so getting this wrong once poisons the
+# build directory permanently and the symptom (effects silently missing at
+# runtime, or a link against /usr/lib/libwlroots) shows up far away from the
+# cause. Verify it where the choice is made.
+# The generated .pc file is authoritative and reflects the cached choice.
+assert_dep_uses_fork() {
+	dir=$1
+	name=$2
+	pc=$(ls "$dir"/build/meson-uninstalled/*.pc 2>/dev/null | head -n1)
+	[ -n "$pc" ] || return 0
+	if grep -q 'wlroots-0.20' "$pc" &&
+			! grep -q 'wlroots-vkfx-0.20' "$pc"; then
+		die "$name was configured without the wlroots fork: it looked for
+wlroots-vkfx-0.20, did not find it at $WLR_DIR/build/meson-uninstalled, and
+fell back to a system wlroots. Build the fork first, or point WLR_DIR at the
+tree that has build/meson-uninstalled. If $name was already configured, wipe
+its build directory: meson caches the choice.
+Offending pkg-config file: $pc"
+	fi
+}
+assert_dep_uses_fork "$SFX_DIR" scenefx
 
 # --- configure and build MangoWM -------------------------------------------
 
