@@ -35,7 +35,7 @@ monitor_rule=name:Values,Parameter:Values,Parameter:Values
 | `hdr_max_lum` | float | 0.0-10000.0 | Mastering display peak luminance, also sent as max_cll, cd/m² (0 = unset) |
 | `hdr_max_avg_lum` | float | 0.0-10000.0 | Max frame-average light level (max_fall), cd/m² (0 = unset) |
 | `hdr_force` | integer | 0, 1 | Enable HDR even when the EDID does not advertise BT.2020/PQ |
-| `bit_depth` | integer | 0, 8, 10 | Preferred render format depth. `10` makes 10-bit the default for this output; outputs that cannot do it fall back to 8-bit. `0` leaves whatever the output picked (`8` by default) |
+| `bit_depth` | integer | 0, 8, 10 | Preferred render format depth. `10` makes 10-bit the default for this output; outputs that cannot do it fall back to 8-bit. `0` never sets a format |
 | `icc` | string | - | Path to an ICC profile applied as the output color transform (e.g. `/usr/share/color/icc/MyDisplay.icc`). Mutually exclusive with `hdr`: when both are set, HDR takes precedence and the ICC profile is ignored. Set `hdr:0` to use the ICC profile |
 | `rr` | integer | 0-7 | Monitor transform |
 | `custom` | integer | 0, 1 | Enable custom mode (not supported on all displays — may cause black screen) |
