@@ -120,6 +120,10 @@ struct Monitor {
 	float hdr_max_avg_lum;
 	// Bypass the EDID-derived capability checks (DisplayID-only panels).
 	bool hdr_force;
+	// Preferred render format depth from the monitor rule: 0 keeps whatever the
+	// output already uses, 8 or 10 asks for that depth and falls back when the
+	// output cannot do it. Independent of HDR: HDR still picks its own depth.
+	enum render_bit_depth bit_depth;
 	struct wlr_color_transform
 		*icc_transform; /* ICC transform loaded from the ICC file. */
 	char icc_path[PATH_MAX];

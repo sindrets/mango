@@ -3,6 +3,7 @@
 #include "mango/common/server.h"
 #include "mango/common/util.h"
 #include "mango/ext-protocol/ext-workspace.h"
+#include "mango/ext-protocol/hdr.h"
 #include "mango/input/device.h"
 #include "mango/input/keyboard.h"
 #include "mango/layout/layout.h"
@@ -636,6 +637,14 @@ cJSON *build_monitor_json(Monitor *m) {
 	/* Whether the HDR state currently in use was chosen by cm_auto_hdr. */
 	cJSON_AddBoolToObject(resp, "is_auto_hdr", m->auto_hdr_active);
 	cJSON_AddBoolToObject(resp, "is_vrr", m->is_vrr_enabling);
+	/* Render bit depth actually in use, whether it came from HDR or from a
+	 * monitor rule. */
+	cJSON_AddNumberToObject(
+		resp, "bit_depth",
+		bit_depth_from_format(m->wlr_output->render_format) ==
+				MANGO_RENDER_BIT_DEPTH_10
+			? 10
+			: 8);
 	cJSON_AddNumberToObject(resp, "x", m->m.x);
 	cJSON_AddNumberToObject(resp, "y", m->m.y);
 	cJSON_AddNumberToObject(resp, "width", m->m.width);

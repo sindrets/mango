@@ -582,6 +582,9 @@ bool apply_rule_to_state(Monitor *m, const ConfigMonitorRule *rule,
 	m->hdr_max_lum = rule->hdr_max_lum;
 	m->hdr_max_avg_lum = rule->hdr_max_avg_lum;
 	m->hdr_force = rule->hdr_force >= 0 ? rule->hdr_force : 0;
+	m->bit_depth = rule->bit_depth == 8	   ? MANGO_RENDER_BIT_DEPTH_8
+				   : rule->bit_depth == 10 ? MANGO_RENDER_BIT_DEPTH_10
+										   : MANGO_RENDER_BIT_DEPTH_DEFAULT;
 	monitor_set_icc(m, rule->icc);
 
 	if (m->hdr_enable && m->icc_transform)
@@ -772,6 +775,11 @@ void handle_new_output(struct wl_listener *listener, void *data) {
 		output_state_setup_hdr(m, false, &state);
 	} else {
 		output_enable_hdr(m, &state, false, false);
+		// A preferred bit depth from the monitor rule is this output's
+		// default, so apply it even when the rule also sets hdr:0.
+		// output_enable_hdr() only handles the case where HDR is being
+		// turned off on an output that was in HDR.
+		set_render_format_for_depth(m, m->bit_depth, &state);
 	}
 
 	// Creates the scene_output if not created yet.

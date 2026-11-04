@@ -18,6 +18,11 @@ bool output_format_in_candidates(uint32_t format, uint32_t candidates[],
 								 size_t count);
 enum render_bit_depth bit_depth_from_format(uint32_t render_format);
 bool output_supports_hdr(const Monitor *m, const char **reason);
+/* Sets the render format for a monitor rule's preferred bit depth, falling back
+ * to 8-bit when the output cannot do 10. Returns whether the state now carries
+ * a different format. */
+bool set_render_format_for_depth(Monitor *m, enum render_bit_depth depth,
+								 struct wlr_output_state *state);
 void output_enable_hdr(Monitor *m, struct wlr_output_state *os, bool enabled,
 					   bool silent);
 void output_state_setup_hdr(Monitor *m, bool silent,

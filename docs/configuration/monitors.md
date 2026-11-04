@@ -35,6 +35,7 @@ monitor_rule=name:Values,Parameter:Values,Parameter:Values
 | `hdr_max_lum` | float | 0.0-10000.0 | Mastering display peak luminance, also sent as max_cll, cd/m² (0 = unset) |
 | `hdr_max_avg_lum` | float | 0.0-10000.0 | Max frame-average light level (max_fall), cd/m² (0 = unset) |
 | `hdr_force` | integer | 0, 1 | Enable HDR even when the EDID does not advertise BT.2020/PQ |
+| `bit_depth` | integer | 0, 8, 10 | Preferred render format depth. `10` makes 10-bit the default for this output; outputs that cannot do it fall back to 8-bit. `0` leaves whatever the output picked (`8` by default) |
 | `icc` | string | - | Path to an ICC profile applied as the output color transform (e.g. `/usr/share/color/icc/MyDisplay.icc`). Mutually exclusive with `hdr`: when both are set, HDR takes precedence and the ICC profile is ignored. Set `hdr:0` to use the ICC profile |
 | `rr` | integer | 0-7 | Monitor transform |
 | `custom` | integer | 0, 1 | Enable custom mode (not supported on all displays — may cause black screen) |
@@ -263,6 +264,48 @@ cm_auto_hdr=1
 > output is still in SDR, the player might be forcing HDR onto an SDR monitor.
 > I.e. mpv does that when `--target-colorspace-hint-mode` is set to `source`;
 > the default, `target`, lets the monitor decide instead.
+
+---
+
+## Render bit depth
+
+Outputs render into an 8-bit buffer by default. Some panels can take 10 bits per
+channel, which removes banding in gradients — most visibly on HDR content, but
+also on wide-gamut SDR desktops. `bit_depth` in a monitor rule makes that the
+default for one output:
+
+```ini
+monitor_rule=name:DP-1,bit_depth:10
+```
+
+| Value | Behaviour |
+| :--- | :--- |
+| `0` (default) | Set no format at all: whatever the output already uses stays in place, including a depth it picked up earlier from `10`, from HDR, or from a previous session's rule |
+| `10` | Use a 10-bit format when the output supports one, otherwise fall back to 8-bit |
+| `8` | Pin the output to 8-bit |
+
+The rule wins over whatever HDR left behind: an output with `bit_depth:10` keeps
+a 10-bit format after a fullscreen HDR client exits, and `bit_depth:8` brings
+one back to 8-bit. Setting both `hdr:1` and `bit_depth:10` is the normal way to
+get a permanently HDR desktop.
+
+While an output is in HDR, `hdr_depth` (above) chooses the depth, because HDR
+normally wants 10-bit. `bit_depth:8` still wins there — it pins the output to
+8-bit and HDR runs at 8 — so the two settings cannot disagree about the depth
+actually used.
+
+If the panel is currently limited to 8 bits — because the link cannot carry
+more, the mode does not allow it, or the display's EDID does not say it can —
+mango logs the fallback and uses 8-bit. Whether a format is accepted depends on
+the display and cable in use, so a rule that works on one machine may fall back
+on another.
+
+`bit_depth` in `get all-monitors` reports the depth actually in use, so a rule
+that silently fell back is visible there.
+
+> **Note:** A 10-bit output is not the same as HDR. It gives the desktop more
+> precision, but the output stays SDR until a `hdr:1` rule or `cm_auto_hdr`
+> switches it.
 
 ---
 

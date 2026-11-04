@@ -63,6 +63,53 @@ bool output_supports_hdr(const Monitor *m, const char **reason) {
 		*reason = r;
 	return !r;
 }
+
+/* Sets the render format for a requested bit depth. Returns true when the state
+ * carries a different format than the output is using. A depth the output
+ * cannot do falls back instead of failing: a monitor rule is a preference, and
+ * refusing to bring an output up because a panel lacks 10-bit would be worse
+ * than running it at 8. Returns false when nothing had to change. */
+bool set_render_format_for_depth(Monitor *m, enum render_bit_depth depth,
+								 struct wlr_output_state *state) {
+	if (depth == MANGO_RENDER_BIT_DEPTH_DEFAULT)
+		return false;
+
+	enum render_bit_depth current =
+		bit_depth_from_format(m->wlr_output->render_format);
+	if (current == depth)
+		return false;
+
+	bool ok = false;
+	if (depth == MANGO_RENDER_BIT_DEPTH_10) {
+		ok = output_set_render_format(m, output_formats_10bit,
+									  ARRAY_SIZE(output_formats_10bit), state);
+		if (!ok) {
+			mango_error(true, WLR_INFO,
+						"Output %s cannot do a 10-bit format, falling back to "
+						"8-bit",
+						m->wlr_output->name);
+			depth = MANGO_RENDER_BIT_DEPTH_8;
+		}
+	}
+
+	if (!ok && depth == MANGO_RENDER_BIT_DEPTH_8) {
+		// Falling back from 10-bit on an output that is already 8-bit is not a
+		// change, so there is nothing to commit.
+		if (current == MANGO_RENDER_BIT_DEPTH_8)
+			return false;
+		ok = output_set_render_format(m, output_formats_8bit,
+									  ARRAY_SIZE(output_formats_8bit), state);
+	}
+
+	if (!ok)
+		return false;
+
+	// Swapping the depth changes the buffer the link carries, and the DRM
+	// backend only programs max bpc as part of a modeset. wlroots refuses a
+	// disruptive commit unless it is allowed explicitly.
+	state->allow_reconfiguration = true;
+	return true;
+}
 void output_enable_hdr(Monitor *m, struct wlr_output_state *os, bool enabled,
 					   bool silent) {
 	/* Never short-circuit the disable path. wlroots only recomputes the scene
@@ -89,11 +136,19 @@ void output_enable_hdr(Monitor *m, struct wlr_output_state *os, bool enabled,
 							m->wlr_output->name);
 			wlr_output_state_set_image_description(os, NULL);
 		}
-		/* Put the pre-HDR render format back in the same commit as the
-		 * description clear. Leaving the pipe 10-bit would keep every SDR
-		 * frame in a 30-bit buffer -- double the bandwidth, dithered back
-		 * down -- and keep screen capture negotiating 10-bit dmabufs. */
-		if (m->hdr_render_format_saved) {
+		/* The rule's preferred depth is this output's default, so it wins over
+		 * whatever was there before HDR. The render format is committed either
+		 * way, and the state is also what carries the change.
+		 *
+		 * Doing this in the same commit as the description clear matters:
+		 * leaving the pipe 10-bit would keep every SDR frame in a 30-bit
+		 * buffer -- double the bandwidth, dithered back down -- and keep
+		 * screen capture negotiating 10-bit dmabufs. */
+		if (m->bit_depth != MANGO_RENDER_BIT_DEPTH_DEFAULT) {
+			// The rule decides, so the pre-HDR format is never restored.
+			set_render_format_for_depth(m, m->bit_depth, os);
+			m->hdr_render_format_saved = false;
+		} else if (m->hdr_render_format_saved) {
 			bool restored;
 			struct wlr_output_state test = *os;
 
@@ -103,7 +158,8 @@ void output_enable_hdr(Monitor *m, struct wlr_output_state *os, bool enabled,
 				restored = true;
 			} else {
 				restored = output_set_render_format(
-					m, output_formats_8bit, ARRAY_SIZE(output_formats_8bit), os);
+					m, output_formats_8bit, ARRAY_SIZE(output_formats_8bit),
+					os);
 				if (!restored && !silent)
 					mango_error(true, WLR_ERROR,
 								"Failed to restore the color format on "

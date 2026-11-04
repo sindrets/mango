@@ -188,9 +188,10 @@ typedef struct {
 	float hdr_max_lum;			 // mastering max luminance / max_cll, cd/m²
 	float hdr_max_avg_lum;		 // max frame-average light level, cd/m²
 	int32_t hdr_force;			 // ignore EDID-derived HDR capability checks
-	char *icc;					 // ICC profile path
-	int32_t disable;			 // prefer disable
-	int32_t primary;			 // X11 (RandR) primary output for XWayland
+	int32_t bit_depth; // preferred render format depth: 0 auto, 8 or 10 bit
+	char *icc;		   // ICC profile path
+	int32_t disable;   // prefer disable
+	int32_t primary;   // X11 (RandR) primary output for XWayland
 } ConfigMonitorRule;
 
 typedef struct {
