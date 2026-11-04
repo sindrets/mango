@@ -24,7 +24,7 @@ bool output_set_render_format(Monitor *m, uint32_t candidates[], size_t count,
 		}
 	}
 
-	mango_error(true, WLR_DEBUG, "HDR: Failed to set render format");
+	mango_error(true, WLR_DEBUG, "No render format candidate was accepted");
 	return false;
 }
 
@@ -71,11 +71,16 @@ bool output_supports_hdr(const Monitor *m, const char **reason) {
  * than running it at 8. Returns false when nothing had to change. */
 bool set_render_format_for_depth(Monitor *m, enum render_bit_depth depth,
 								 struct wlr_output_state *state) {
-	if (depth == MANGO_RENDER_BIT_DEPTH_DEFAULT)
+	if (depth == MANGO_RENDER_BIT_DEPTH_DEFAULT || !m->wlr_output->enabled)
 		return false;
 
-	enum render_bit_depth current =
-		bit_depth_from_format(m->wlr_output->render_format);
+	/* The caller's state may already carry a newer format than the output
+	 * (handle_new_output() builds one from output_enable_hdr()'s result), so
+	 * compare against what will actually be committed. */
+	uint32_t active_format = (state->committed & WLR_OUTPUT_STATE_RENDER_FORMAT)
+								 ? state->render_format
+								 : m->wlr_output->render_format;
+	enum render_bit_depth current = bit_depth_from_format(active_format);
 	if (current == depth)
 		return false;
 
@@ -213,9 +218,20 @@ void output_state_setup_hdr(Monitor *m, bool silent,
 		return;
 	}
 
+	/* hdr_depth selects the depth HDR renders at, and used to be the only
+	 * input. A monitor rule's bit_depth refines it: hdr_depth still decides by
+	 * default (HDR at 10-bit is the point), but an explicit bit_depth:8 means
+	 * the output cannot carry 10-bit and HDR has to run at 8. bit_depth:10
+	 * with hdr_depth:8 is the same conflict the other way round, so only the
+	 * lower of the two wins -- never a depth the user ruled out. */
 	enum render_bit_depth depth = config.hdr_depth;
 	if (depth == MANGO_RENDER_BIT_DEPTH_DEFAULT)
 		depth = bit_depth_from_format(render_format);
+	if (m->bit_depth == MANGO_RENDER_BIT_DEPTH_8)
+		depth = MANGO_RENDER_BIT_DEPTH_8;
+	else if (m->bit_depth == MANGO_RENDER_BIT_DEPTH_10 &&
+			 depth == MANGO_RENDER_BIT_DEPTH_DEFAULT)
+		depth = MANGO_RENDER_BIT_DEPTH_10;
 
 	/* Remember what the output used before HDR changed its bit depth, so that
 	 * leaving HDR can put it back. Only when the depth actually changes: with
@@ -488,7 +504,7 @@ client_image_description(Client *c) {
  * A client that never asks is not switched pre-emptively: it would render SDR
  * into a PQ pipe. */
 static bool client_wants_hdr(Client *c) {
-	if (!c || client_is_x11(c))
+	if (!c || !c->surface.xdg || client_is_x11(c))
 		return false;
 
 	struct wlr_surface *root = client_surface(c);
@@ -662,6 +678,7 @@ static void check_auto_hdr_monitor(Monitor *m) {
 	if (prev != target) {
 		m->auto_hdr_failed = false;
 		m->auto_hdr_preswap = false;
+		m->auto_hdr_preswap_done = false;
 	}
 	m->auto_hdr_client = target;
 
@@ -682,9 +699,15 @@ static void check_auto_hdr_monitor(Monitor *m) {
 	 * guess on every evaluation and the retraction in
 	 * check_auto_hdr_committed() could never take effect: a client that asks
 	 * for scRGB but renders SDR would hold the output in HDR for as long as it
-	 * stays fullscreen. */
-	if (target && client_wants_hdr(target) &&
-		client_image_description(target) == NULL)
+	 * stays fullscreen.
+	 *
+	 * Hence the latch rather than a test of the committed description: a
+	 * client that committed an SDR description while it was windowed (Mesa
+	 * clients normally do) has one at the moment it goes fullscreen, so
+	 * "has not committed anything" would silently lose the pre-emptive switch
+	 * for exactly the clients this exists for. */
+	if (target && !m->auto_hdr_preswap && !m->auto_hdr_preswap_done &&
+		client_wants_hdr(target))
 		m->auto_hdr_preswap = true;
 
 	bool want = false;
@@ -779,7 +802,10 @@ void hdr_handle_client_wants_hdr(struct wl_listener *listener, void *data) {
 	 * by PID. */
 	Client *c = NULL;
 	wl_list_for_each(c, &server.clients, link) {
-		if (!c || c->iskilling || !c->mon || client_is_x11(c))
+		/* client_surface() dereferences c->surface.xdg unconditionally, and
+		 * the destroy handler NULLs it before the client leaves this list. */
+		if (!c || !c->surface.xdg || c->iskilling || !c->mon ||
+			client_is_x11(c))
 			continue;
 
 		struct wlr_surface *root = client_surface(c);
@@ -847,11 +873,27 @@ void check_auto_hdr_committed(Client *c) {
 		 * here -- this runs inside a surface commit, and the idle
 		 * evaluation is what commits outputs. */
 		m->auto_hdr_preswap = false;
+		m->auto_hdr_preswap_done = true;
 		m->auto_hdr_client_hdr = hdr;
 	} else if (!hdr)
 		return;
 
 	schedule_auto_hdr(m);
+}
+
+/* Rolls back the advertisement only, leaving the ownership flags alone so a
+ * config reapply can do this *before* committing the rules. See
+ * reapply_monitor_rules() for why the ordering matters. */
+void auto_hdr_forget_advertisement(Monitor *m) {
+	if (!m->auto_hdr_client)
+		return;
+	client_set_preferred_description(m->auto_hdr_client, m, false);
+}
+
+void auto_hdr_forget_advertisements(void) {
+	Monitor *m = NULL;
+	wl_list_for_each(m, &server.monitors, link)
+		auto_hdr_forget_advertisement(m);
 }
 
 /* Drops auto-HDR ownership of every output, rolling back the advertisement
@@ -861,12 +903,14 @@ void check_auto_hdr_committed(Client *c) {
 void auto_hdr_forget_all(void) {
 	Monitor *m = NULL;
 	wl_list_for_each(m, &server.monitors, link) {
-		if (m->auto_hdr_client) {
-			client_set_preferred_description(m->auto_hdr_client, m, false);
-			m->auto_hdr_client = NULL;
-		}
+		/* Roll back here too: this is also the standalone entry point, and
+		 * dropping the pointer without it would leave the client advertised
+		 * PQ with nothing left to retract it. */
+		auto_hdr_forget_advertisement(m);
+		m->auto_hdr_client = NULL;
 		m->auto_hdr_active = false;
 		m->auto_hdr_preswap = false;
+		m->auto_hdr_preswap_done = false;
 	}
 }
 

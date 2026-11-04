@@ -638,13 +638,20 @@ cJSON *build_monitor_json(Monitor *m) {
 	cJSON_AddBoolToObject(resp, "is_auto_hdr", m->auto_hdr_active);
 	cJSON_AddBoolToObject(resp, "is_vrr", m->is_vrr_enabling);
 	/* Render bit depth actually in use, whether it came from HDR or from a
-	 * monitor rule. */
-	cJSON_AddNumberToObject(
-		resp, "bit_depth",
-		bit_depth_from_format(m->wlr_output->render_format) ==
-				MANGO_RENDER_BIT_DEPTH_10
-			? 10
-			: 8);
+	 * monitor rule. 0 for a format the tables do not recognise, rather than
+	 * claiming 8. */
+	int depth = 0;
+	switch (bit_depth_from_format(m->wlr_output->render_format)) {
+	case MANGO_RENDER_BIT_DEPTH_10:
+		depth = 10;
+		break;
+	case MANGO_RENDER_BIT_DEPTH_8:
+		depth = 8;
+		break;
+	case MANGO_RENDER_BIT_DEPTH_DEFAULT:
+		break;
+	}
+	cJSON_AddNumberToObject(resp, "bit_depth", depth);
 	cJSON_AddNumberToObject(resp, "x", m->m.x);
 	cJSON_AddNumberToObject(resp, "y", m->m.y);
 	cJSON_AddNumberToObject(resp, "width", m->m.width);

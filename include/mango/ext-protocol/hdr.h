@@ -45,6 +45,11 @@ void check_auto_hdr_all(void);
  * rollback happens here rather than in a deferred evaluation, so a client is
  * never left advertised PQ on an output that was just switched to SDR. */
 void auto_hdr_forget_all(void);
+/* Rolls back the PQ advertisement for the client driving one output, or all of
+ * them, without touching the ownership flags. A config reapply uses this before
+ * committing the rules, so a client is told SDR before an output goes SDR. */
+void auto_hdr_forget_advertisement(Monitor *m);
+void auto_hdr_forget_advertisements(void);
 /* wlr_color_manager_v1.events.client_wants_hdr handler; see hdr.c. */
 void hdr_handle_client_wants_hdr(struct wl_listener *listener, void *data);
 #endif

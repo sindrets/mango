@@ -109,6 +109,10 @@ struct Monitor {
 	 * swapchain: a swapchain created against SDR parameters does not survive
 	 * the output being switched underneath it. */
 	bool auto_hdr_preswap;
+	/* Set once the client has committed a description of its own, so the
+	 * pre-emptive guess is never re-armed afterwards. Cleared when the target
+	 * changes, along with auto_hdr_preswap. */
+	bool auto_hdr_preswap_done;
 	// Render format the output had before HDR switched it, restored on exit.
 	// Recorded only when HDR actually changes the bit depth, so an 8-bit HDR
 	// mode does not swap one 8-bit candidate for another.

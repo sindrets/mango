@@ -35,7 +35,7 @@ monitor_rule=name:Values,Parameter:Values,Parameter:Values
 | `hdr_max_lum` | float | 0.0-10000.0 | Mastering display peak luminance, also sent as max_cll, cd/m² (0 = unset) |
 | `hdr_max_avg_lum` | float | 0.0-10000.0 | Max frame-average light level (max_fall), cd/m² (0 = unset) |
 | `hdr_force` | integer | 0, 1 | Enable HDR even when the EDID does not advertise BT.2020/PQ |
-| `bit_depth` | integer | 0, 8, 10 | Preferred render format depth. `10` makes 10-bit the default for this output; outputs that cannot do it fall back to 8-bit. `0` never sets a format |
+| `bit_depth` | integer | 0, 8, 10 | Preferred render format depth. `10` makes 10-bit the default for this output; outputs that cannot do it fall back to 8-bit. `0` sets nothing, so the output keeps whatever depth it already has |
 | `icc` | string | - | Path to an ICC profile applied as the output color transform (e.g. `/usr/share/color/icc/MyDisplay.icc`). Mutually exclusive with `hdr`: when both are set, HDR takes precedence and the ICC profile is ignored. Set `hdr:0` to use the ICC profile |
 | `rr` | integer | 0-7 | Monitor transform |
 | `custom` | integer | 0, 1 | Enable custom mode (not supported on all displays — may cause black screen) |
@@ -122,8 +122,6 @@ Tearing allows games to bypass the compositor's VSync for lower latency.
 | :--- | :--- | :--- |
 | `allow_tearing` | `0` | Global tearing control: `0` (Disable), `1` (Enable), `2` (Fullscreen only). |
 
-### Tearing configuration
-
 **Enable Globally:**
 
 ```ini
@@ -160,7 +158,7 @@ env=WLR_DRM_NO_ATOMIC,1
 
 | Setting | Default | Description |
 | :--- | :--- | :--- |
-| `hdr_depth` | `2`| Set the hdr depth for the current display. `0` is Default, `1` is HDR8, `2` is HDR10. |
+| `hdr_depth` | `2`| Set the hdr depth for the current display. `0` is Default, `1` is HDR8, `2` is HDR10. See [Render bit depth](#render-bit-depth) for setting a depth outside of HDR. |
 
 - you should enable HDR in monitor_rule first, refer to [Monitors — Monitor Rules](/docs/configuration/monitors#monitor-rules)
 - you must set `env=WLR_RENDERER,vulkan` before mango starts.

@@ -1039,6 +1039,9 @@ void handle_output_request_state(struct wl_listener *listener, void *data) {
 											 event->state->custom_mode.refresh);
 			break;
 		}
+		/* Same reason as in output_manager_apply_or_test(): the saved
+		 * pre-HDR format is tied to the mode it was negotiated under. */
+		m->hdr_render_format_saved = false;
 		handle_output_layout_change(NULL, NULL);
 		wlr_output_schedule_frame(m->wlr_output);
 		return;
@@ -1294,8 +1297,15 @@ void output_manager_apply_or_test(struct wlr_output_configuration_v1 *config,
 		}
 
 	apply_or_test:
+		bool has_mode = state.committed & WLR_OUTPUT_STATE_MODE;
 		ok &= test ? wlr_output_test_state(wlr_output, &state)
 				   : wlr_output_commit_state(wlr_output, &state);
+		/* The saved pre-HDR format was validated against the old mode. A
+		 * different mode can refuse it, and the restore path would then fall
+		 * back to whichever 8-bit candidate sorts first instead of the format
+		 * this output actually used. */
+		if (!test && has_mode && ok)
+			m->hdr_render_format_saved = false;
 
 		/* Don't move monitors if position wouldn't change, this to avoid
 		 * wlroots marking the output as manually configured.

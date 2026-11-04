@@ -218,6 +218,15 @@ void reapply_monitor_rules(void) {
 	Monitor *m = NULL;
 	int32_t ji;
 
+	/* Tell every client that was driving an auto-HDR output to render SDR
+	 * again BEFORE any output is committed. The two halves of the handover
+	 * pull in opposite directions: committing the rule first would leave a
+	 * client still rendering PQ into an output the rule just switched to SDR,
+	 * while rolling the advertisement back first means the client is briefly
+	 * SDR on an output that is still HDR. Only the second is recoverable --
+	 * the client re-commits on its own -- so it is the one to choose. */
+	auto_hdr_forget_advertisements();
+
 	wl_list_for_each(m, &server.monitors, link) {
 		ConfigMonitorRule *mr = NULL;
 		bool was_enabled = m->wlr_output->enabled;
@@ -267,6 +276,12 @@ void reapply_monitor_rules(void) {
 			output_state_setup_hdr(m, false, &m->pending);
 		} else {
 			output_enable_hdr(m, &m->pending, false, false);
+			/* The rule's preferred depth is this output's default, so it
+			 * applies here as it does on a new output. Without this a
+			 * reload would leave an existing output at whatever depth it
+			 * already had and the rule would only take effect after the
+			 * output was re-created. */
+			set_render_format_for_depth(m, m->bit_depth, &m->pending);
 		}
 
 		if (m->is_hdr_enabling != was_hdr) {
@@ -278,6 +293,8 @@ void reapply_monitor_rules(void) {
 		if (!(mango_scene_output_commit(m->scene_output, &m->pending))) {
 			if (m->hdr_enable) {
 				output_state_setup_hdr(m, true, &m->pending);
+			} else {
+				set_render_format_for_depth(m, m->bit_depth, &m->pending);
 			}
 		}
 
@@ -288,13 +305,11 @@ void reapply_monitor_rules(void) {
 										&m->m.height);
 	}
 
-	/* Drop auto-HDR ownership of every output. This rolls back the PQ
-	 * advertisement for the client that was driving one: doing it here, before
-	 * the outputs are handed back to the rules, is what keeps a client from
-	 * committing PQ into an output this reload switched to SDR. */
+	/* Drop auto-HDR ownership and, afterwards, re-advertise to whatever
+	 * fullscreen client is now on each output. The advertisement rollback
+	 * itself happened before the commits above. */
 	auto_hdr_forget_all();
 
-	/* Re-advertise to whatever fullscreen client is now on each output. */
 	check_auto_hdr_all();
 
 	handle_output_layout_change(NULL, NULL);
