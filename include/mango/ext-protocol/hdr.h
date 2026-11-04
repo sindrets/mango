@@ -35,6 +35,11 @@ bool auto_hdr_apply(Monitor *m, bool want);
 void check_auto_hdr(Client *c);
 void check_auto_hdr_committed(Client *c);
 void check_auto_hdr_all(void);
+/* Drops auto-HDR ownership of every output, rolling back the advertisement for
+ * any client that was driving one. Safe to call from a config reapply: the
+ * rollback happens here rather than in a deferred evaluation, so a client is
+ * never left advertised PQ on an output that was just switched to SDR. */
+void auto_hdr_forget_all(void);
 /* wlr_color_manager_v1.events.client_wants_hdr handler; see hdr.c. */
 void hdr_handle_client_wants_hdr(struct wl_listener *listener, void *data);
 #endif

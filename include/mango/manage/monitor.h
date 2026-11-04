@@ -109,6 +109,11 @@ struct Monitor {
 	 * swapchain: a swapchain created against SDR parameters does not survive
 	 * the output being switched underneath it. */
 	bool auto_hdr_preswap;
+	// Render format the output had before HDR switched it, restored on exit.
+	// Recorded only when HDR actually changes the bit depth, so an 8-bit HDR
+	// mode does not swap one 8-bit candidate for another.
+	uint32_t hdr_render_format;
+	bool hdr_render_format_saved;
 	// Mastering display metadata, in cd/m². 0 = unset, see output_enable_hdr().
 	float hdr_min_lum;
 	float hdr_max_lum;

@@ -236,11 +236,9 @@ void reapply_monitor_rules(void) {
 			/* No rule matches: same default as a new output, enabled. */
 			wlr_output_state_set_enabled(&m->pending, true);
 
-		/* The rule is authoritative now; drop any auto-HDR ownership so a
-		 * later restore cannot clobber the configured HDR state. */
-		m->auto_hdr_active = false;
-		m->auto_hdr_client = NULL;
-
+		/* The rule is authoritative now. Auto-HDR ownership is dropped once,
+		 * after every output has been re-applied, so the deferred evaluation
+		 * cannot restore over the configured state. */
 		/* Enable the output first so it can safely enter the layout:
 		 * adding a still-disabled output re-enters
 		 * handle_output_layout_change and crashes. */
@@ -289,6 +287,12 @@ void reapply_monitor_rules(void) {
 		wlr_output_effective_resolution(m->wlr_output, &m->m.width,
 										&m->m.height);
 	}
+
+	/* Drop auto-HDR ownership of every output. This rolls back the PQ
+	 * advertisement for the client that was driving one: doing it here, before
+	 * the outputs are handed back to the rules, is what keeps a client from
+	 * committing PQ into an output this reload switched to SDR. */
+	auto_hdr_forget_all();
 
 	/* Re-advertise to whatever fullscreen client is now on each output. */
 	check_auto_hdr_all();

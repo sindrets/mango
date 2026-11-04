@@ -1,5 +1,9 @@
 #include "mango/ext-protocol/hdr.h"
+#include "mango/common/log.h"
+#include "mango/common/server.h"
 #include "mango/manage/client.h"
+#include "mango/manage/monitor.h"
+
 #include <wlr/types/wlr_color_management_v1.h>
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_output.h>
@@ -8,9 +12,7 @@
 
 static uint32_t output_formats_8bit[10];
 static uint32_t output_formats_10bit[8];
-#include "mango/common/log.h"
-#include "mango/common/server.h"
-#include "mango/manage/monitor.h"
+
 bool output_set_render_format(Monitor *m, uint32_t candidates[], size_t count,
 							  struct wlr_output_state *state) {
 	for (size_t i = 0; i < count; i++) {
@@ -70,7 +72,11 @@ void output_enable_hdr(Monitor *m, struct wlr_output_state *os, bool enabled,
 	 * already went back to SDR. Clearing an already-clear description is
 	 * harmless, so disable always does the work. */
 
-	if (!output_supports_hdr(m, NULL)) {
+	/* The capability check only gates *enabling*. Bailing out of the disable
+	 * path here would strand the output: a rule re-applied with hdr_force off,
+	 * or an EDID that lost its HDR block, would return before clearing the
+	 * description or restoring the render format. */
+	if (enabled && !output_supports_hdr(m, NULL)) {
 		m->is_hdr_enabling = false;
 		return;
 	}
@@ -82,6 +88,33 @@ void output_enable_hdr(Monitor *m, struct wlr_output_state *os, bool enabled,
 				mango_error(true, WLR_DEBUG, "Disabling HDR on output %s",
 							m->wlr_output->name);
 			wlr_output_state_set_image_description(os, NULL);
+		}
+		/* Put the pre-HDR render format back in the same commit as the
+		 * description clear. Leaving the pipe 10-bit would keep every SDR
+		 * frame in a 30-bit buffer -- double the bandwidth, dithered back
+		 * down -- and keep screen capture negotiating 10-bit dmabufs. */
+		if (m->hdr_render_format_saved) {
+			bool restored;
+			struct wlr_output_state test = *os;
+
+			wlr_output_state_set_render_format(&test, m->hdr_render_format);
+			if (wlr_output_test_state(m->wlr_output, &test)) {
+				wlr_output_state_set_render_format(os, m->hdr_render_format);
+				restored = true;
+			} else {
+				restored = output_set_render_format(
+					m, output_formats_8bit, ARRAY_SIZE(output_formats_8bit), os);
+				if (!restored && !silent)
+					mango_error(true, WLR_ERROR,
+								"Failed to restore the color format on "
+								"output %s",
+								m->wlr_output->name);
+			}
+			/* Keep the record when it failed: mango_scene_output_commit()
+			 * finishes the state on failure, losing the description clear and
+			 * the format together, so the next disable has to retry both. */
+			if (restored)
+				m->hdr_render_format_saved = false;
 		}
 		m->is_hdr_enabling = false;
 		return;
@@ -127,6 +160,18 @@ void output_state_setup_hdr(Monitor *m, bool silent,
 	enum render_bit_depth depth = config.hdr_depth;
 	if (depth == MANGO_RENDER_BIT_DEPTH_DEFAULT)
 		depth = bit_depth_from_format(render_format);
+
+	/* Remember what the output used before HDR changed its bit depth, so that
+	 * leaving HDR can put it back. Only when the depth actually changes: with
+	 * hdr_depth=8 restoring would just swap one 8-bit candidate for another.
+	 * Gated on !is_hdr_enabling so re-applying an output that is already in
+	 * HDR records the real pre-HDR format instead of the HDR one. */
+	if (depth == MANGO_RENDER_BIT_DEPTH_10 &&
+		bit_depth_from_format(render_format) != MANGO_RENDER_BIT_DEPTH_10 &&
+		!m->is_hdr_enabling && render_format != 0) {
+		m->hdr_render_format = render_format;
+		m->hdr_render_format_saved = true;
+	}
 
 	if (depth == MANGO_RENDER_BIT_DEPTH_10 &&
 		bit_depth_from_format(render_format) == depth) {
@@ -575,7 +620,15 @@ static void check_auto_hdr_monitor(Monitor *m) {
 	 * Not latched to the target: a client asks a moment after its window
 	 * appears, so the capability can turn true on a later evaluation of the
 	 * same target. */
-	if (target && !m->auto_hdr_preswap && client_wants_hdr(target))
+	/* The guess only applies until the client says something. The wlroots
+	 * record of "this client asked for a Windows description" lasts for the
+	 * client's lifetime, so gating on the capability alone would re-derive the
+	 * guess on every evaluation and the retraction in
+	 * check_auto_hdr_committed() could never take effect: a client that asks
+	 * for scRGB but renders SDR would hold the output in HDR for as long as it
+	 * stays fullscreen. */
+	if (target && client_wants_hdr(target) &&
+		client_image_description(target) == NULL)
 		m->auto_hdr_preswap = true;
 
 	bool want = false;
@@ -609,7 +662,11 @@ static void check_auto_hdr_monitor(Monitor *m) {
 	/* Roll back the advertisement for a client that stopped being the target
 	 * (unfocused, unfullscreened, ...): otherwise it keeps rendering PQ into
 	 * an output that is no longer in HDR. */
-	if (prev && prev != target && !prev->iskilling)
+	/* Only roll back on the output the client is still on. After a monitor
+	 * move the client is fullscreen on a different (possibly HDR) output, and
+	 * telling it SDR here would make it commit SDR there, which rolls that
+	 * output back out of HDR. */
+	if (prev && prev != target && !prev->iskilling && prev->mon == m)
 		client_set_preferred_description(prev, m, false);
 }
 
@@ -656,27 +713,28 @@ static void schedule_auto_hdr(Monitor *m) {
  * a present that never completes. */
 void hdr_handle_client_wants_hdr(struct wl_listener *listener, void *data) {
 	struct wl_client *client = data;
-	pid_t pid = 0;
 
 	if (client == NULL || !server.color_manager)
 		return;
-	wl_client_get_credentials(client, &pid, NULL, NULL);
-	if (pid <= 0)
-		return;
 
+	/* The event payload is the asking client's own wl_client, so match on the
+	 * handle instead of re-deriving a PID: one process can hold several
+	 * wl_clients, PIDs get reused, and a nested compositor is indistinguishable
+	 * by PID. */
 	Client *c = NULL;
 	wl_list_for_each(c, &server.clients, link) {
-		pid_t cpid = 0;
-
-		if (!c || c->iskilling || !c->mon || client_is_x11(c) ||
-			!c->surface.xdg)
+		if (!c || c->iskilling || !c->mon || client_is_x11(c))
 			continue;
-		wl_client_get_credentials(c->surface.xdg->client->client, &cpid, NULL,
-								  NULL);
-		if (cpid == pid) {
-			schedule_auto_hdr(c->mon);
-			return;
-		}
+
+		struct wlr_surface *root = client_surface(c);
+		if (root == NULL || root->resource == NULL)
+			continue;
+		if (wl_resource_get_client(root->resource) != client)
+			continue;
+
+		schedule_auto_hdr(c->mon);
+		/* Not a break: a process with several toplevels can have one on each
+		 * output, and every one of them needs its output re-evaluated. */
 	}
 }
 
@@ -718,9 +776,14 @@ void check_auto_hdr_committed(Client *c) {
 	bool hdr = client_advertises_hdr(c);
 	if (m->auto_hdr_client == c) {
 		/* Settled when the output state already matches the committed
-		 * description, or when switching it was given up on. */
+		 * description, or when switching it was given up on. Compare
+		 * against the output's actual state, not hdr_enable: that is the
+		 * configured state, so with a base hdr:1 rule an SDR-rendering
+		 * client would never look settled and every frame commit would
+		 * schedule a full evaluation. */
+		bool in_hdr = m->wlr_output->image_description != NULL;
 		if (hdr == m->auto_hdr_client_hdr &&
-			(m->hdr_enable == hdr || m->auto_hdr_failed))
+			(in_hdr == hdr || m->auto_hdr_failed))
 			return;
 		/* The client committed a description, so the guess is over: from
 		 * here on the committed description decides. A description that
@@ -733,6 +796,22 @@ void check_auto_hdr_committed(Client *c) {
 		return;
 
 	schedule_auto_hdr(m);
+}
+
+/* Drops auto-HDR ownership of every output, rolling back the advertisement
+ * right here. The deferred evaluation cannot do this: it runs after the caller
+ * has finished, and a config reapply needs the client told SDR before it
+ * commits into what is now an SDR output. */
+void auto_hdr_forget_all(void) {
+	Monitor *m = NULL;
+	wl_list_for_each(m, &server.monitors, link) {
+		if (m->auto_hdr_client) {
+			client_set_preferred_description(m->auto_hdr_client, m, false);
+			m->auto_hdr_client = NULL;
+		}
+		m->auto_hdr_active = false;
+		m->auto_hdr_preswap = false;
+	}
 }
 
 /* Re-applies auto-HDR to every output, e.g. after a config reload. */

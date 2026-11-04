@@ -121,8 +121,41 @@ Tearing allows games to bypass the compositor's VSync for lower latency.
 | :--- | :--- | :--- |
 | `allow_tearing` | `0` | Global tearing control: `0` (Disable), `1` (Enable), `2` (Fullscreen only). |
 
+### Tearing configuration
+
+**Enable Globally:**
+
+```ini
+allow_tearing=1
+```
+
+**Enable per Window:**
+
+Use a window rule to force tearing for specific games.
+
+```ini
+window_rule=force_tearing:1,title:vkcube
+```
+
+### Tearing Behavior Matrix
+
+| `force_tearing` \ `allow_tearing` | DISABLED (0) | ENABLED (1) | FULLSCREEN_ONLY (2) |
+| :--- | :--- | :--- | :--- |
+| **UNSPECIFIED** (0) | Not Allowed | Follows tearing_hint | Only fullscreen follows tearing_hint |
+| **ENABLED** (1) | Not Allowed | Allowed | Only fullscreen allowed |
+| **DISABLED** (2) | Not Allowed | Not Allowed | Not Allowed |
+
+### Graphics Card Compatibility
+
+> **Warning:** Some graphics cards require setting the `WLR_DRM_NO_ATOMIC` environment variable before mango starts to successfully enable tearing.
+
+Add this to config and relogin mango:
+```
+env=WLR_DRM_NO_ATOMIC,1
+```
+
 ## HDR
-> HDR is only supported in wl-only branch, since it requires the `vulkan` renderer but scenefx is not supported yet.
+> HDR requires the `vulkan` renderer, so set `WLR_RENDERER=vulkan`.
 
 | Setting | Default | Description |
 | :--- | :--- | :--- |
@@ -222,44 +255,14 @@ cm_auto_hdr=1
   [Window Rules](/docs/window-management/rules).
 - Clients that do not support HDR keep rendering SDR and the output stays SDR,
   so this is safe to leave on.
+- `is_auto_hdr` in `get all-monitors` reports whether auto HDR currently owns
+  the output, not whether the output is in HDR. An output kept in HDR by
+  `hdr:1` reports `is_hdr:1` with `is_auto_hdr:0`.
 
 > **Note:** If HDR content seems to have incorrect tone mapping while the
 > output is still in SDR, the player might be forcing HDR onto an SDR monitor.
 > I.e. mpv does that when `--target-colorspace-hint-mode` is set to `source`;
 > the default, `target`, lets the monitor decide instead.
-
-### Configuration
-
-**Enable Globally:**
-
-```ini
-allow_tearing=1
-```
-
-**Enable per Window:**
-
-Use a window rule to force tearing for specific games.
-
-```ini
-window_rule=force_tearing:1,title:vkcube
-```
-
-### Tearing Behavior Matrix
-
-| `force_tearing` \ `allow_tearing` | DISABLED (0) | ENABLED (1) | FULLSCREEN_ONLY (2) |
-| :--- | :--- | :--- | :--- |
-| **UNSPECIFIED** (0) | Not Allowed | Follows tearing_hint | Only fullscreen follows tearing_hint |
-| **ENABLED** (1) | Not Allowed | Allowed | Only fullscreen allowed |
-| **DISABLED** (2) | Not Allowed | Not Allowed | Not Allowed |
-
-### Graphics Card Compatibility
-
-> **Warning:** Some graphics cards require setting the `WLR_DRM_NO_ATOMIC` environment variable before mango starts to successfully enable tearing.
-
-Add this to config and relogin mango:
-```
-env=WLR_DRM_NO_ATOMIC,1
-```
 
 ---
 

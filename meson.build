@@ -31,19 +31,28 @@ xcb = dependency('xcb', required : get_option('xwayland'))
 xlibs = dependency('xcb-icccm', required : get_option('xwayland'))
 xcb_randr = dependency('xcb-randr', required : get_option('xwayland'))
 wayland_server_dep = dependency('wayland-server',version: '>=1.23.1')
-# Prefer the wlroots-vkfx fork when it is available: its Vulkan renderer exports
-# the render pass internals SceneFX needs for effects. Identical to the lookup
-# SceneFX itself does, so both agree on which wlroots they build against.
+# The wlroots-vkfx fork is required, not preferred: its Vulkan renderer exports
+# the render pass internals SceneFX needs, and auto-HDR needs protocol support
+# (wp_color_manager_v1 create_windows_* descriptions) that upstream 0.20 does
+# not have. Falling back to a system wlroots only produced a confusing compile
+# error, so say what is missing instead.
 wlroots_version = ['>=0.20.0', '<0.21.0']
 wlroots_dep = dependency('wlroots-vkfx-0.20', version: wlroots_version, required: false)
 if not wlroots_dep.found()
-  wlroots_dep = dependency('wlroots-0.20', version: wlroots_version)
+  wlroots_dep = dependency('wlroots-0.20', version: wlroots_version, required: false)
+  if wlroots_dep.found()
+    error('Found the system wlroots-0.20, but mango needs the wlroots-vkfx fork: it provides the SceneFX render pass internals and the wp_color_manager_v1 Windows HDR descriptions. Build the fork (scripts/build-vkfx.sh does both) and make sure its pkg-config file is on PKG_CONFIG_PATH.')
+  endif
+  error('wlr vkfx dep missing')
 endif
 xkbcommon_dep = dependency('xkbcommon')
 libinput_dep = dependency('libinput',version: '>=1.27.1')
 libwayland_client_dep = dependency('wayland-client')
 pcre2_dep = dependency('libpcre2-8')
 libscenefx_dep = dependency('scenefx-0.5',version: '>=0.5.0')
+if not cc.has_header('scenefx/scenefx.h', dependencies: libscenefx_dep)
+  error('Found scenefx-0.5, but not its unified scenefx/scenefx.h header. mango needs the SceneFX fork that pairs with wlroots-vkfx; build it with scripts/build-vkfx.sh.')
+endif
 pixman_dep = dependency('pixman-1')
 cjson_dep = dependency('libcjson')
 pangocairo_dep = dependency('pangocairo')

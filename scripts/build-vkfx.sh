@@ -151,8 +151,11 @@ build_dep "$SFX_DIR" scenefx
 assert_dep_uses_fork() {
 	dir=$1
 	name=$2
-	pc=$(ls "$dir"/build/meson-uninstalled/*.pc 2>/dev/null | head -n1)
-	[ -n "$pc" ] || return 0
+	# Name the .pc explicitly: globbing and taking the first match silently
+	# checks an arbitrary file once a dependency dir produces more than one.
+	# Meson names these <dep>-uninstalled.pc.
+	pc="$dir/build/meson-uninstalled/$3-uninstalled.pc"
+	[ -f "$pc" ] || return 0
 	if grep -q 'wlroots-0.20' "$pc" &&
 			! grep -q 'wlroots-vkfx-0.20' "$pc"; then
 		die "$name was configured without the wlroots fork: it looked for
@@ -163,13 +166,13 @@ its build directory: meson caches the choice.
 Offending pkg-config file: $pc"
 	fi
 }
-assert_dep_uses_fork "$SFX_DIR" scenefx
+assert_dep_uses_fork "$SFX_DIR" scenefx scenefx-0.5
 
 # --- configure and build MangoWM -------------------------------------------
 
 if [ "$reconf" = 1 ] && [ -f "$BUILD_DIR/build.ninja" ]; then
 	echo "==> reconfiguring mango"
-	meson configure "$BUILD_DIR" --wipe >/dev/null 2>&1 || true
+	meson setup --wipe "$BUILD_DIR" "$repo" --buildtype=debugoptimized >/dev/null 2>&1 || true
 fi
 
 # meson records PKG_CONFIG_PATH as the pkg_config_path option when it first
