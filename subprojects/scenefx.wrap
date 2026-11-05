@@ -1,0 +1,10 @@
+; Fallback for checkouts that have no git submodules. A configured
+; subprojects/scenefx directory always wins over this file, so `git submodule
+; update --init` and a hand-placed clone both take precedence.
+[wrap-git]
+url = https://github.com/sindrets/scenefx.git
+revision = 845780c9e128ca751a09309de8cdf36854320448
+depth = 1
+
+[provide]
+scenefx-0.5 = scenefx

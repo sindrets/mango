@@ -1,2 +1,6 @@
 option('xwayland', type : 'feature', value : 'enabled')
 option('asan', type : 'boolean', value : false)
+# Build against a wlroots-vkfx and scenefx installed on the system (pkg-config)
+# instead of the vendored subprojects. Also the switch to flip on when pointing
+# PKG_CONFIG_PATH at local fork builds - see docs/installation.md.
+option('use_system_fx', type : 'boolean', value : false)

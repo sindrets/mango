@@ -1,0 +1,10 @@
+; Fallback for checkouts that have no git submodules. A configured
+; subprojects/wlroots directory always wins over this file, so `git submodule
+; update --init` and a hand-placed clone both take precedence.
+[wrap-git]
+url = https://github.com/sindrets/wlroots-vkfx.git
+revision = f7dea96b6e1c125ec97229ce9f4d471d63ef9475
+depth = 1
+
+[provide]
+wlroots-vkfx-0.20 = wlroots

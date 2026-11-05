@@ -196,16 +196,21 @@ if [ -f "$BUILD_DIR/meson-info/intro-buildoptions.json" ]; then
 	esac
 fi
 
+# -Duse_system_fx=true is what tells meson to look at pkg-config (and therefore
+# at the trees named above) instead of building the vendored subprojects. Without
+# it this script would silently compile subprojects/ and ignore WLR_DIR/SFX_DIR.
 if [ ! -f "$BUILD_DIR/build.ninja" ]; then
 	echo "==> configuring mango"
 	run_quiet mango-configure "$BUILD_DIR.log" \
 		meson setup "$BUILD_DIR" "$repo" --buildtype=debugoptimized \
+			-Duse_system_fx=true \
 		|| die "meson setup failed, see $BUILD_DIR.log"
 else
 	echo "==> configuring mango (incremental)"
 	run_quiet mango-configure "$BUILD_DIR.log" \
 		meson setup --reconfigure "$BUILD_DIR" "$repo" \
 			--buildtype=debugoptimized \
+			-Duse_system_fx=true \
 		|| die "meson reconfigure failed, see $BUILD_DIR.log"
 fi
 

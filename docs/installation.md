@@ -297,33 +297,91 @@ If your distribution isn't listed above, or you want the latest unreleased chang
 > - `xorg-xwayland`
 > - `libxcb`
 
-You will need to build `wlroots` and `scenefx` manually as well.
+> **Note:** This branch needs the `wlroots-vkfx` and `scenefx` forks, not the upstream
+> releases. Both are vendored as git submodules under `subprojects/`, so the steps
+> below do not build or install them separately. See
+> [Developing against a local fork clone](#developing-against-a-local-fork-clone)
+> if you want to point the build at your own checkouts instead.
 
-1. **Build wlroots**
-   Clone and install the specific version required (check README for latest version).
-
-   ```bash
-   git clone -b 0.20.2 https://gitlab.freedesktop.org/wlroots/wlroots.git
-   cd wlroots
-   meson build -Dprefix=/usr
-   sudo ninja -C build install
-   ```
-
-2. **Build scenefx**
-   This library handles the visual effects.
+1. **Check out mango with its submodules**
 
    ```bash
-   git clone -b 0.5 https://github.com/wlrfx/scenefx.git
-   cd scenefx
-   meson build -Dprefix=/usr
-   sudo ninja -C build install
-   ```
-
-3. **Build mangowm**
-   Finally, compile the compositor itself.
-   ```bash
-   git clone https://github.com/mangowm/mango.git
+   git clone --recurse-submodules https://github.com/sindrets/mango.git
    cd mango
-   meson build -Dprefix=/usr
+   ```
+
+   If you already cloned without `--recurse-submodules`, or the submodules were
+   never initialized, fetch them now:
+
+   ```bash
+   git submodule update --init
+   ```
+
+2. **Configure and build**
+
+   ```bash
+   meson setup build -Dprefix=/usr
+   ninja -C build
+   ```
+
+   Meson builds both forks from `subprojects/` as part of this configure and
+   compiles. Nothing has to be installed before this step.
+
+   Submodules are convenient, not required: `subprojects/wlroots.wrap` and
+   `subprojects/scenefx.wrap` pin the same commits, so a source tarball, a
+   `git archive` tree, or a clone made without `--recurse-submodules` fetches
+   the forks during `meson setup` instead. A checked-out `subprojects/wlroots`
+   directory always takes precedence over its wrap file.
+
+3. **Install**
+
+   ```bash
    sudo ninja -C build install
    ```
+
+   The install step also installs the two fork libraries and their pkg-config
+   files, because mango links them by soname.
+
+### How the forks are resolved
+
+By default the vendored checkouts under `subprojects/` are preferred, and
+pkg-config is only consulted when they are absent or unusable. So a plain
+`meson setup` builds exactly the commits this tree pins, whatever the host
+happens to have installed.
+
+`-Duse_system_fx=true` skips the vendored checkouts and uses pkg-config alone,
+which is what you want for a system-wide fork install or a local clone (see
+below)..
+
+Either of the Vulkan or GLES2 renderers can be selected at run time with
+`WLR_RENDERER` (default `auto` prefers GLES2 and falls back to Vulkan). You can
+also build with a single renderer:
+
+```bash
+meson configure build -Dwlroots:renderers=vulkan
+```
+
+### Developing against a local fork clone
+
+Working on the forks themselves (or on mango and the forks together) is the case
+where the vendored checkouts get in the way: `subprojects/wlroots` is then a
+submodule, and edits there are easy to lose to a `git submodule update`.
+
+Point the build at your own clone instead, with pkg-config exactly like any other
+external library. Both forks export an uninstalled pkg-config directory after
+being built once, so nothing needs to be installed:
+
+```bash
+# build each fork once, wherever your clones live
+WLR=$HOME/src/wlroots-vkfx
+SFX=$HOME/src/scenefx
+meson setup $WLR/build -Dexamples=false
+ninja -C $WLR/build
+meson setup $SFX/build -Dexamples=false
+ninja -C $SFX/build
+
+# then build mango against them
+PKG_CONFIG_PATH="$WLR/build/meson-uninstalled:$SFX/build/meson-uninstalled" \
+  meson setup build -Dprefix=/usr -Duse_system_fx=true
+ninja -C build
+```

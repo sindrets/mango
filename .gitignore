@@ -14,3 +14,5 @@ util.o
 .envrc
 .direnv
 /build-*
+# written by meson while it fetches a subproject wrap
+/subprojects/.wraplock

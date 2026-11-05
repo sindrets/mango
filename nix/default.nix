@@ -42,6 +42,9 @@ stdenv.mkDerivation {
   mesonFlags = [
     (lib.mesonEnable "xwayland" enableXWayland)
     (lib.mesonBool "asan" debug)
+    # wlroots and scenefx come from buildInputs, not from the vendored
+    # submodules, so skip those lookups entirely.
+    (lib.mesonBool "use_system_fx" true)
   ];
 
   nativeBuildInputs = [

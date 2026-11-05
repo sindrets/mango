@@ -31,28 +31,110 @@ xcb = dependency('xcb', required : get_option('xwayland'))
 xlibs = dependency('xcb-icccm', required : get_option('xwayland'))
 xcb_randr = dependency('xcb-randr', required : get_option('xwayland'))
 wayland_server_dep = dependency('wayland-server',version: '>=1.23.1')
-# The wlroots-vkfx fork is required, not preferred: its Vulkan renderer exports
-# the render pass internals SceneFX needs, and auto-HDR needs protocol support
-# (wp_color_manager_v1 create_windows_* descriptions) that upstream 0.20 does
-# not have. Falling back to a system wlroots only produced a confusing compile
-# error, so say what is missing instead.
+
+# --- wlroots-vkfx and scenefx -------------------------------------------------
+# This branch needs the wlroots-vkfx and scenefx forks, not the upstream
+# releases.
+#
+# The vendored checkouts are preferred over anything installed on the system,
+# and pkg-config is only consulted when they are absent or unusable. That way a
+# plain `meson setup` builds the forks this tree pins, instead of whatever the
+# host happens to have.
+#
+#   (default)      subprojects/wlroots + subprojects/scenefx, falling back to
+#                  pkg-config if those are not available
+#   use_system_fx  pkg-config only: a fork installed system-wide, or local
+#                  clones pointed at through PKG_CONFIG_PATH
 wlroots_version = ['>=0.20.0', '<0.21.0']
-wlroots_dep = dependency('wlroots-vkfx-0.20', version: wlroots_version, required: false)
-if not wlroots_dep.found()
-  wlroots_dep = dependency('wlroots-0.20', version: wlroots_version, required: false)
-  if wlroots_dep.found()
-    error('Found the system wlroots-0.20, but mango needs the wlroots-vkfx fork: it provides the SceneFX render pass internals and the wp_color_manager_v1 Windows HDR descriptions. Build the fork (scripts/build-vkfx.sh does both) and make sure its pkg-config file is on PKG_CONFIG_PATH.')
+scenefx_version = '>=0.5.0'
+wlroots_subproject_options = ['examples=false', 'renderers=gles2,vulkan']
+scenefx_subproject_options = ['examples=false']
+if get_option('use_system_fx')
+  wlroots_dep = dependency('wlroots-vkfx-0.20',
+    version: wlroots_version,
+    required: false,
+  )
+  libscenefx_dep = dependency('scenefx-0.5',
+    version: scenefx_version,
+    required: false,
+  )
+else
+  # Resolve wlroots before scenefx: scenefx looks wlroots up by name and finds
+  # this override, but only once it exists. Configuring scenefx first would
+  # make it build without a wlroots and silently drop its Vulkan renderer.
+  wlroots_proj = subproject('wlroots',
+    version: wlroots_version,
+    required: false,
+    default_options: wlroots_subproject_options,
+  )
+  if wlroots_proj.found()
+    wlroots_dep = wlroots_proj.get_variable('wlroots')
+  else
+    wlroots_dep = dependency('wlroots-vkfx-0.20',
+      version: wlroots_version,
+      required: false,
+    )
   endif
-  error('wlr vkfx dep missing')
+  # scenefx is looked up whether or not wlroots resolved: its own error message
+  # is better than one about wlroots when both are missing.
+  libscenefx_proj = subproject('scenefx',
+    version: scenefx_version,
+    required: false,
+    default_options: scenefx_subproject_options,
+  )
+  if libscenefx_proj.found()
+    libscenefx_dep = libscenefx_proj.get_variable('scenefx')
+  else
+    libscenefx_dep = dependency('scenefx-0.5',
+      version: scenefx_version,
+      required: false,
+    )
+  endif
+endif
+
+# Diagnostics. Each branch exists because the failure it explains is otherwise
+# reported far from its cause.
+if get_option('use_system_fx')
+  missing_hint = '-Duse_system_fx=true was given, so the fork is expected to be installed and visible to pkg-config. Point PKG_CONFIG_PATH at a built fork, or drop the option to build the vendored copy - see docs/installation.md.'
+else
+  missing_hint = 'The vendored copy is missing or was not usable. Get it with:\n  git submodule update --init'
+endif
+
+if not wlroots_dep.found()
+  upstream_dep = dependency('wlroots-0.20', version: wlroots_version, required: false)
+  if upstream_dep.found()
+    error('Found wlroots-0.20, but it is not the wlroots-vkfx fork: mango needs the fork\'s Vulkan render pass internals and its wp_color_manager_v1 Windows HDR descriptions.\n\nAn installed upstream wlroots shadows the fork. Remove that package, or pick the fork explicitly.\n\n' + missing_hint)
+  endif
+  error('wlroots-vkfx was not found. mango needs the wlroots-vkfx fork (pkg-config name wlroots-vkfx-0.20).\n\n' + missing_hint)
+endif
+
+if not libscenefx_dep.found()
+  upstream_scenefx_dep = dependency('scenefx-0.5', version: scenefx_version, required: false)
+  if upstream_scenefx_dep.found()
+    error('Found scenefx-0.5, but not its unified scenefx/scenefx.h header: that is an upstream scenefx, not the fork that pairs with wlroots-vkfx.\n\nAn installed upstream scenefx shadows the fork. Remove that package, or pick the fork explicitly.\n\n' + missing_hint)
+  endif
+  error('scenefx-0.5 was not found. mango needs the scenefx fork that pairs with wlroots-vkfx.\n\n' + missing_hint)
+endif
+
+# The same check for a fork found outside the tree: an internal dependency is
+# the subproject, which is the fork by construction.
+if libscenefx_dep.type_name() != 'internal' and not cc.has_header('scenefx/scenefx.h', dependencies: libscenefx_dep)
+  error('Found scenefx-0.5, but not its unified scenefx/scenefx.h header: that is an upstream scenefx, not the fork that pairs with wlroots-vkfx.\n\n' + missing_hint)
+endif
+# A Vulkan compositor linked against a wlroots built without its Vulkan renderer
+# fails at run time, not at link time. GLES2-only is a supported configuration
+# (hardware where Vulkan is broken or absent), so this is only worth a warning.
+if wlroots_dep.type_name() == 'internal'
+  wlroots_have_vulkan = wlroots_dep.get_variable('have_vulkan_renderer', default_value: 'true')
+  wlroots_have_gles2 = wlroots_dep.get_variable('have_gles2_renderer', default_value: 'true')
+  if wlroots_have_vulkan != 'true'
+    warning('The vendored wlroots was built without its Vulkan renderer, so mango will be limited to the GLES2 renderer and the Vulkan-only features of this branch will not work.\n\nBuild both renderers instead:\n  meson setup --wipe build -Dwlroots:renderers=gles2,vulkan')
+  endif
 endif
 xkbcommon_dep = dependency('xkbcommon')
 libinput_dep = dependency('libinput',version: '>=1.27.1')
 libwayland_client_dep = dependency('wayland-client')
 pcre2_dep = dependency('libpcre2-8')
-libscenefx_dep = dependency('scenefx-0.5',version: '>=0.5.0')
-if not cc.has_header('scenefx/scenefx.h', dependencies: libscenefx_dep)
-  error('Found scenefx-0.5, but not its unified scenefx/scenefx.h header. mango needs the SceneFX fork that pairs with wlroots-vkfx; build it with scripts/build-vkfx.sh.')
-endif
 pixman_dep = dependency('pixman-1')
 cjson_dep = dependency('libcjson')
 pangocairo_dep = dependency('pangocairo')
