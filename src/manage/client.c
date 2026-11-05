@@ -385,7 +385,7 @@ void client_set_state_colors(Client *c, const float border_color[4],
 	}
 }
 
-void client_set_fullscreen(Client *c, int32_t fullscreen) {
+static void client_notify_fullscreen(Client *c, int32_t fullscreen) {
 #ifdef XWAYLAND
 	if (client_is_x11(c)) {
 		wlr_xwayland_surface_set_fullscreen(c->surface.xwayland, fullscreen);
@@ -1616,7 +1616,7 @@ void check_match_tag_floating_rule(Client *c, Monitor *mon) {
 	}
 }
 
-void client_apply_rules(Client *c, Monitor **rule_mon, uint32_t *rule_tags) {
+void client_set_rules(Client *c, Monitor **rule_mon, uint32_t *rule_tags) {
 	/* rule matching */
 	const char *appid, *title;
 	uint32_t i, newtags = 0;
@@ -1804,7 +1804,7 @@ void client_apply_rules(Client *c, Monitor **rule_mon, uint32_t *rule_tags) {
 		client_view_on_monitor(&(Arg){.ui = c->tags}, true, c->mon, true);
 	}
 
-	client_apply_fullscreen(c, fullscreen_state_backup, true);
+	client_set_fullscreen(c, fullscreen_state_backup, true);
 
 	if (c->isfakefullscreen) {
 		client_set_fake_fullscreen(c, 1);
@@ -2019,7 +2019,7 @@ bool client_init_unmanaged(Client *c) {
 	return false;
 }
 
-void client_apply_xwayland(Client *c) {
+void client_set_xwayland(Client *c) {
 	if (client_is_x11(c)) {
 #ifdef XWAYLAND
 		/* c->mon is only determined after applyrules/setmon; apply XWayland
@@ -2140,6 +2140,7 @@ void init_client_properties(Client *c) {
 	c->isoverlay = 0;
 	c->isunglobal = 0;
 	c->is_in_scratchpad = 0;
+	c->isfloating_before_scratchpad = 0;
 	c->isnamedscratchpad = 0;
 	c->need_float_size_reduce = 0;
 	c->is_clip_to_hide = 0;
@@ -2435,9 +2436,9 @@ void handle_client_map(struct wl_listener *listener, void *data) {
 
 	wl_list_insert(&server.focus_stack, &c->flink);
 
-	client_apply_rules(c, NULL, NULL);
+	client_set_rules(c, NULL, NULL);
 
-	client_apply_xwayland(c);
+	client_set_xwayland(c);
 
 	if (!c->isfloating || c->force_tiled_state) {
 		client_set_tiled(c, WLR_EDGE_TOP | WLR_EDGE_BOTTOM | WLR_EDGE_LEFT |
@@ -2486,13 +2487,17 @@ void handle_client_commit(struct wl_listener *listener, void *data) {
 		init_client_properties(c);
 		Monitor *rule_mon = NULL;
 		uint32_t rule_tags = 0;
-		client_apply_rules(c, &rule_mon, &rule_tags);
+		client_set_rules(c, &rule_mon, &rule_tags);
 		client_negotiate_initial_size(c, rule_mon, rule_tags);
 		if (c->mon) {
 			client_set_scale(client_surface(c), c->mon->wlr_output->scale);
 		}
 		client_set_monitor(
 			c, NULL, 0, true); /* Make sure to reapply rules in mapnotify() */
+
+		if (!c->isfloating || c->force_tiled_state)
+			client_set_tiled(c, WLR_EDGE_TOP | WLR_EDGE_BOTTOM | WLR_EDGE_LEFT |
+									WLR_EDGE_RIGHT);
 
 		uint32_t serial = wlr_xdg_surface_schedule_configure(c->surface.xdg);
 		if (serial > 0) {
@@ -2689,7 +2694,7 @@ void handle_client_unmap(struct wl_listener *listener, void *data) {
 
 	if (c->swallowing) {
 		client_set_maximize_screen(c->swallowing, c->ismaximizescreen, true);
-		client_apply_fullscreen(c->swallowing, c->isfullscreen, true);
+		client_set_fullscreen(c->swallowing, c->isfullscreen, true);
 		c->swallowing->swallowdby = NULL;
 		c->swallowing = NULL;
 	}
@@ -2780,7 +2785,7 @@ void handle_client_request_fullscreen(struct wl_listener *listener,
 		return;
 
 	client_move_to_requested_fullscreen_output(c);
-	client_apply_fullscreen(c, client_wants_fullscreen(c), true);
+	client_set_fullscreen(c, client_wants_fullscreen(c), true);
 }
 
 void handle_client_request_maximize(struct wl_listener *listener, void *data) {
@@ -3322,14 +3327,48 @@ void client_set_monitor(Client *c, Monitor *m, uint32_t newtags, bool focus) {
 		resize(c, c->geom, (ResizeOpts){.interact = 0});
 		client_reset_mon_tags(c, m, newtags);
 		check_match_tag_floating_rule(c, m);
-		client_set_floating(c, c->isfloating);
-		client_apply_fullscreen(c, c->isfullscreen,
-								true); /* This will call arrange(c->mon) */
+		client_set_floating(c, c->isfloating, false);
+		client_set_fullscreen(c, c->isfullscreen,
+							  true); /* This will call arrange(c->mon) */
 	}
 
 	if (focus && !client_is_x11_popup(c)) {
 		client_focus(client_focus_top(server.selected_monitor), 1);
 	}
+}
+
+static void client_adapt_geometry_to_monitor(Client *c, Monitor *oldmon) {
+	if (!c || !c->mon || !oldmon || oldmon->w.width <= 0 ||
+		oldmon->w.height <= 0 || c->mon->w.width <= 0 ||
+		c->mon->w.height <= 0) {
+		return;
+	}
+
+	c->float_geom.width = (int32_t)((int64_t)c->float_geom.width *
+									c->mon->w.width / oldmon->w.width);
+	c->float_geom.height = (int32_t)((int64_t)c->float_geom.height *
+									 c->mon->w.height / oldmon->w.height);
+	c->float_geom = client_center_geometry(c, c->mon, c->float_geom, 0, 0);
+}
+
+bool client_set_monitor_adapted(Client *c, Monitor *m, uint32_t newtags,
+								bool focus) {
+	if (!c || !m || !c->mon || c->mon == m) {
+		return false;
+	}
+
+	Monitor *oldmon = c->mon;
+	client_set_monitor(c, m, newtags, focus);
+	if (c->mon != m) {
+		return false;
+	}
+
+	client_update_oldmonname_record(c, m);
+	client_adapt_geometry_to_monitor(c, oldmon);
+	if (c->isfloating) {
+		c->geom = c->float_geom;
+	}
+	return true;
 }
 
 void client_change_mon(Client *c, Monitor *m) {
@@ -3382,7 +3421,7 @@ void view_insert_shift_tags(Monitor *m, uint32_t target) {
 	}
 }
 
-void client_set_floating(Client *c, int32_t floating) {
+void client_set_floating(Client *c, int32_t floating, bool want_animation) {
 
 	Client *fc = NULL;
 	struct wlr_box target_box;
@@ -3399,7 +3438,7 @@ void client_set_floating(Client *c, int32_t floating) {
 
 		if (c->isfullscreen) {
 			client_pending_fullscreen_state(c, 0);
-			client_set_fullscreen(c, 0);
+			client_notify_fullscreen(c, 0);
 		}
 
 		client_pending_maximized_state(c, 0);
@@ -3457,7 +3496,7 @@ void client_set_floating(Client *c, int32_t floating) {
 
 	client_sync_tiled_hint(c);
 
-	arrange(c->mon, false, false);
+	arrange(c->mon, want_animation, false);
 
 	if (!c->isfloating) {
 		c->old_master_inner_per = c->master_inner_per;
@@ -3468,7 +3507,7 @@ void client_set_floating(Client *c, int32_t floating) {
 	printstatus(IPC_WATCH_ARRANGGE);
 }
 
-void client_apply_fullscreen(
+void client_set_fullscreen(
 	Client *c, int32_t fullscreen,
 	bool rearrange) // Uses the custom fullscreen proxy for its own fullscreen.
 {
@@ -3482,7 +3521,7 @@ void client_apply_fullscreen(
 
 	c->isfullscreen = fullscreen;
 
-	client_set_fullscreen(c, fullscreen);
+	client_notify_fullscreen(c, fullscreen);
 	client_pending_fullscreen_state(c, fullscreen);
 
 	if (fullscreen) {
@@ -3503,7 +3542,7 @@ void client_apply_fullscreen(
 	} else {
 		c->bw = c->no_border ? 0 : config.borderpx;
 		if (c->isfloating)
-			client_set_floating(c, 1);
+			client_set_floating(c, 1, false);
 	}
 
 	client_reparent_group(c);
@@ -3521,9 +3560,9 @@ void client_set_fake_fullscreen(Client *c, int32_t fakefullscreen) {
 		return;
 
 	if (c->isfullscreen)
-		client_apply_fullscreen(c, 0, true);
+		client_set_fullscreen(c, 0, true);
 
-	client_set_fullscreen(c, fakefullscreen);
+	client_notify_fullscreen(c, fakefullscreen);
 }
 
 static void maximize_screen_gaps(Client *c, int32_t *gappoh, int32_t *gappov) {
@@ -3553,7 +3592,7 @@ void client_set_maximize_screen(Client *c, int32_t maximizescreen,
 
 		if (c->isfullscreen) {
 			client_pending_fullscreen_state(c, 0);
-			client_set_fullscreen(c, 0);
+			client_notify_fullscreen(c, 0);
 		}
 
 		exit_scroller_stack(c);
@@ -3575,7 +3614,7 @@ void client_set_maximize_screen(Client *c, int32_t maximizescreen,
 	} else {
 		c->bw = c->no_border ? 0 : config.borderpx;
 		if (c->isfloating)
-			client_set_floating(c, 1);
+			client_set_floating(c, 1, false);
 	}
 
 	client_reparent_group(c);
@@ -3614,6 +3653,9 @@ void set_minimized(Client *c) {
 	if (!c || !c->mon || c == server.grab_client)
 		return;
 
+	if (!c->is_in_scratchpad)
+		c->isfloating_before_scratchpad = c->isfloating;
+
 	c->isglobal = 0;
 
 	c->oldtags = c->mon->tagset[c->mon->seltags];
@@ -3630,7 +3672,7 @@ void set_minimized(Client *c) {
 													 false);
 
 	wl_list_remove(&c->link); // Removes it from its previous position.
-	wl_list_insert(server.clients.prev, &c->link); // Inserts it at the tail.
+	wl_list_insert(&server.clients, &c->link); // Inserts it at the tail.
 }
 
 void unminimize(Client *c) {
@@ -3700,7 +3742,7 @@ void clear_fullscreen_flag(Client *c) {
 	}
 
 	if (c->isfullscreen) {
-		client_apply_fullscreen(c, false, true);
+		client_set_fullscreen(c, false, true);
 	}
 
 	if (c->ismaximizescreen) {
@@ -3738,7 +3780,7 @@ void show_scratchpad(Client *c) {
 	}
 
 	if (!c->isfloating) {
-		client_set_floating(c, 1);
+		client_set_floating(c, 1, false);
 	}
 
 	if (!c->iscustomsize) {
@@ -3771,13 +3813,7 @@ bool switch_scratchpad_client_state(Client *c) {
 		reset_foreign_tolevel(c, oldmon, c->mon);
 		client_update_oldmonname_record(c, server.selected_monitor);
 
-		// Adjusts the window size for the new monitor.
-		c->float_geom.width =
-			(int32_t)(c->float_geom.width * c->mon->w.width / oldmon->w.width);
-		c->float_geom.height = (int32_t)(c->float_geom.height *
-										 c->mon->w.height / oldmon->w.height);
-
-		c->float_geom = client_center_geometry(c, c->mon, c->float_geom, 0, 0);
+		client_adapt_geometry_to_monitor(c, oldmon);
 
 		// Only a visible scratchpad needs focus and returns true.
 		if (SCRATCHPAD_SHOWN(c)) {
@@ -3934,6 +3970,7 @@ void client_replace(Client *c, Client *w, bool is_group_change_member,
 	c->isfloating = w->isfloating;
 	c->isurgent = w->isurgent;
 	c->is_in_scratchpad = w->is_in_scratchpad;
+	c->isfloating_before_scratchpad = w->isfloating_before_scratchpad;
 	c->tags = w->tags;
 	c->geom = w->geom;
 	c->float_geom = w->float_geom;
@@ -4149,7 +4186,7 @@ void client_update_oldmonname_record(Client *c, Monitor *m) {
 	c->oldmonname[sizeof(c->oldmonname) - 1] = '\0';
 }
 
-void client_apply_bounds(Client *c, struct wlr_box *bbox) {
+void client_set_bounds(Client *c, struct wlr_box *bbox) {
 	/* set minimum possible */
 	c->geom.width = MANGO_MAX(1 + 2 * (int32_t)c->bw, c->geom.width);
 	c->geom.height = MANGO_MAX(1 + 2 * (int32_t)c->bw, c->geom.height);
@@ -4429,7 +4466,7 @@ void client_update_group_bar_title(Client *c) {
 									: 1.0f);
 }
 
-void client_apply_group_bar_config(Client *c) {
+void client_set_group_bar_config(Client *c) {
 	if (!c || !c->group_bar)
 		return;
 	mango_bar_decoration_apply_config(c->group_bar, &config.groupbardata);
@@ -4582,7 +4619,7 @@ void client_set_group_config(Client *c) {
 		wlr_scene_rect_set_color(cur->droparea, config.dropcolor);
 		wlr_scene_rect_set_color(cur->splitindicator[0], config.splitcolor);
 		wlr_scene_rect_set_color(cur->splitindicator[1], config.splitcolor);
-		client_apply_group_bar_config(cur);
+		client_set_group_bar_config(cur);
 		cur = cur->group_next;
 	}
 }
@@ -5003,9 +5040,18 @@ void handle_xwayland_surface_commit(struct wl_listener *listener, void *data) {
 void handle_xwayland_surface_associate(struct wl_listener *listener,
 									   void *data) {
 	Client *c = wl_container_of(listener, c, associate);
+	struct wlr_surface *surface = client_surface(c);
 
-	LISTEN(&client_surface(c)->events.map, &c->map, handle_client_map);
-	LISTEN(&client_surface(c)->events.unmap, &c->unmap, handle_client_unmap);
+	LISTEN(&surface->events.map, &c->map, handle_client_map);
+	LISTEN(&surface->events.unmap, &c->unmap, handle_client_unmap);
+
+	/* Workaround a race in the upstream wlroots xwm.
+	 * TODO(wlroots): remove the workaround.
+	 * See: https://gitlab.freedesktop.org/wlroots/wlroots/-/merge_requests/5479
+	 */
+	if (wlr_surface_has_buffer(surface)) {
+		wlr_surface_map(surface);
+	}
 }
 
 void handle_xwayland_surface_dissociate(struct wl_listener *listener,

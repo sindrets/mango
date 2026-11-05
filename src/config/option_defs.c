@@ -187,6 +187,8 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		config->exchange_cross_monitor = atoi(value);
 	} else if (strcmp(key, "scratchpad_cross_monitor") == 0) {
 		config->scratchpad_cross_monitor = atoi(value);
+	} else if (strcmp(key, "special_tag_cross_monitor") == 0) {
+		config->special_tag_cross_monitor = atoi(value);
 	} else if (strcmp(key, "focus_cross_tag") == 0) {
 		config->focus_cross_tag = atoi(value);
 	} else if (strcmp(key, "view_current_to_back") == 0) {
@@ -2468,6 +2470,7 @@ void set_value_default() {
 	config.focusdir_only_zone_overlap = 1;
 	config.exchange_cross_monitor = 0;
 	config.scratchpad_cross_monitor = 0;
+	config.special_tag_cross_monitor = 0;
 	config.focus_cross_tag = 0;
 	config.axis_scroll_factor = 1.0;
 	config.trackpad_scroll_factor = 1.0;
@@ -2849,6 +2852,8 @@ void override_config(void) {
 		CLAMP_INT(config.exchange_cross_monitor, 0, 1);
 	config.scratchpad_cross_monitor =
 		CLAMP_INT(config.scratchpad_cross_monitor, 0, 1);
+	config.special_tag_cross_monitor =
+		CLAMP_INT(config.special_tag_cross_monitor, 0, 1);
 	config.focus_cross_tag = CLAMP_INT(config.focus_cross_tag, 0, 1);
 	config.view_current_to_back = CLAMP_INT(config.view_current_to_back, 0, 1);
 	config.enable_floating_snap = CLAMP_INT(config.enable_floating_snap, 0, 1);
@@ -2966,11 +2971,11 @@ void override_config(void) {
 	config.blur_params.radius = CLAMP_INT(config.blur_params.radius, 0, 100);
 	config.blur_params.noise = CLAMP_FLOAT(config.blur_params.noise, 0, 1);
 	config.blur_params.brightness =
-		CLAMP_FLOAT(config.blur_params.brightness, 0, 1);
+		CLAMP_FLOAT(config.blur_params.brightness, 0, 2);
 	config.blur_params.contrast =
-		CLAMP_FLOAT(config.blur_params.contrast, 0, 1);
+		CLAMP_FLOAT(config.blur_params.contrast, 0, 2);
 	config.blur_params.saturation =
-		CLAMP_FLOAT(config.blur_params.saturation, 0, 1);
+		CLAMP_FLOAT(config.blur_params.saturation, 0, 2);
 	config.shadows = CLAMP_INT(config.shadows, 0, 1);
 	config.shadow_only_floating = CLAMP_INT(config.shadow_only_floating, 0, 1);
 	config.layer_shadows = CLAMP_INT(config.layer_shadows, 0, 1);

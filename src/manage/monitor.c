@@ -217,6 +217,33 @@ uint32_t get_tags_first_tag_num(uint32_t source_tags) {
 	}
 }
 
+void monitor_copy_tag_layout(Monitor *target, const Monitor *source,
+							 uint32_t tag) {
+	if (!target || !source || !target->pertag || !source->pertag ||
+		tag >= PERTAG_SLOTS || !source->pertag->ltidxs[tag]) {
+		return;
+	}
+
+	Pertag *dst = target->pertag;
+	const Pertag *src = source->pertag;
+
+	dst->nmasters[tag] = src->nmasters[tag];
+	dst->mfacts[tag] = src->mfacts[tag];
+	dst->no_hide[tag] = src->no_hide[tag];
+	dst->no_render_border[tag] = src->no_render_border[tag];
+	dst->open_as_floating[tag] = src->open_as_floating[tag];
+	dst->scroller_default_proportion[tag] =
+		src->scroller_default_proportion[tag];
+	dst->scroller_default_proportion_single[tag] =
+		src->scroller_default_proportion_single[tag];
+	dst->scroller_ignore_proportion_single[tag] =
+		src->scroller_ignore_proportion_single[tag];
+	dst->ltidxs[tag] = src->ltidxs[tag];
+
+	/* Layout trees and scroller nodes are monitor-owned and rebuilt on the
+	 * target after the clients have moved. */
+}
+
 // Gets the tagmask of the first tag in tags.
 uint32_t get_tags_first_tag(uint32_t source_tags) {
 	uint32_t i, tag;
@@ -645,6 +672,7 @@ void handle_new_output(struct wl_listener *listener, void *data) {
 	struct wl_event_loop *loop = wl_display_get_event_loop(server.display);
 	m = wlr_output->data = ecalloc(1, sizeof(*m));
 	wlr_output_state_init(&m->pending);
+	m->frame_serial = 1;
 
 	m->iscleanuping = false;
 	m->skip_frame_timeout =
@@ -1397,6 +1425,8 @@ void handle_output_frame(struct wl_listener *listener, void *data) {
 
 	if (!m->wlr_output->enabled || !server.allow_frame_scheduling)
 		return;
+
+	m->frame_serial++;
 
 	// Draws layers and fade-out effects.
 	for (i = 0; i < LENGTH(m->layers); i++) {
