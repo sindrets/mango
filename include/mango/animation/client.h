@@ -13,6 +13,12 @@ void set_rect_size(struct wlr_scene_rect *rect, int32_t width, int32_t height);
 
 struct fx_corner_radii set_client_corner_location(Client *client);
 
+// Radius the inner edge of the client's border has. Surfaces and the hole cut
+// for them sit inset by the border width, so they need this instead of the
+// outer radius set_client_corner_location() reports.
+struct fx_corner_radii client_inner_corner_location(Client *client,
+		struct fx_corner_radii outer);
+
 bool is_horizontal_stack_layout(Monitor *monitor);
 bool is_horizontal_right_stack_layout(Monitor *monitor);
 

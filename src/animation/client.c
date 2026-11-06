@@ -116,6 +116,18 @@ struct fx_corner_radii set_client_corner_location(Client *c) {
 	return current_corner_location;
 }
 
+// Radius the inner edge of a border with the given outer corners has. The
+// surface and the hole cut for it both sit inset by the border width, so they
+// need this rather than the outer radius: with the outer radius their arc would
+// land on the border's own outer arc, leaving the ring zero-width along the
+// curve. See client_draw_border().
+struct fx_corner_radii client_inner_corner_location(Client *c,
+												struct fx_corner_radii outer) {
+	int32_t bw = (int32_t)c->bw;
+	return corner_radii_new(outer.top_left - bw, outer.top_right - bw,
+						outer.bottom_right - bw, outer.bottom_left - bw);
+}
+
 bool is_horizontal_stack_layout(Monitor *m) {
 	uint32_t tag = get_mon_curtag(m);
 	return m->pertag->ltidxs[tag]->id == TILE ||
@@ -753,10 +765,17 @@ void client_draw_border(Client *c, struct ivec2 offsets) {
 		inner_surface_height =
 			MANGO_MIN(cur.height, inner_surface_height + bottom);
 
+	// The hole is inset by the border width, so it needs the radius the border's
+	// inner edge actually has. With the outer radius its arc would land on the
+	// border's own outer arc, leaving the ring zero-width along the curve and
+	// showing the background through it.
+	struct fx_corner_radii inner_corners =
+		client_inner_corner_location(c, current_corner_location);
+
 	struct clipped_region clipped_region = {
 		.area = {inner_surface_x, inner_surface_y, inner_surface_width,
 				 inner_surface_height},
-		.corners = current_corner_location,
+		.corners = inner_corners,
 	};
 
 	wlr_scene_node_set_position(&c->scene_surface->node, c->bw, c->bw);
@@ -1092,7 +1111,8 @@ void client_set_clip(Client *c, float factor) {
 
 		buffer_set_effect(c, (BufferData){1.0f, 1.0f, clip_box.width,
 										  clip_box.height,
-										  current_corner_location, true});
+										  client_inner_corner_location(c,
+																 current_corner_location), true});
 		return;
 	}
 
@@ -1157,7 +1177,8 @@ void client_set_clip(Client *c, float factor) {
 	buffer_data.should_scale = true;
 	buffer_data.width = clip_box.width;
 	buffer_data.height = clip_box.height;
-	buffer_data.corner_location = current_corner_location;
+	buffer_data.corner_location =
+		client_inner_corner_location(c, current_corner_location);
 
 	if (factor == 1.0 && !c->overview_scene_surface) {
 		buffer_data.width_scale = 1.0;

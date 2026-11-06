@@ -108,6 +108,14 @@ static void rect_apply(struct wlr_scene_rect *rect, const float color[4],
 	wlr_scene_rect_set_size(rect, width, height);
 }
 
+// Radius of the inner edge of a border. A rect inset by `border` and drawn with
+// the outer radius puts its arc on top of the border's outer arc, so the border
+// has no width at all along the curve and the background shows through it.
+static int32_t inner_corner_radius(int32_t outer_radius, int32_t border) {
+	int32_t inner = outer_radius - border;
+	return inner > 0 ? inner : 0;
+}
+
 static void rect_apply_border(struct wlr_scene_rect *rect, const float color[4],
 							  int32_t outer_radius, int32_t inner_radius,
 							  int32_t border, int32_t width, int32_t height) {
@@ -515,10 +523,11 @@ static void jump_label_apply_geometry(MangoJumpLabel *node) {
 	node->logical_height = height;
 
 	rect_apply_border(node->border, node->border_color, node->corner_radius,
-					  node->corner_radius, border, width, height);
+					  inner_corner_radius(node->corner_radius, border), border,
+					  width, height);
 	rect_apply(node->bg, node->focused ? node->focus_bg_color : node->bg_color,
-			   node->corner_radius, border, border, width - 2 * border,
-			   height - 2 * border);
+			   inner_corner_radius(node->corner_radius, border), border, border,
+			   width - 2 * border, height - 2 * border);
 
 	wlr_scene_node_set_position(&node->scene_buffer->node,
 								border + node->padding_x,
@@ -741,9 +750,11 @@ static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 	}
 
 	rect_apply_border(node->border, node->border_color, node->corner_radius,
-					  node->corner_radius, border, width, height);
+					  inner_corner_radius(node->corner_radius, border), border,
+					  width, height);
 	rect_apply(node->bg, node->focused ? node->focus_bg_color : node->bg_color,
-			   node->corner_radius, border, border, inner_w, inner_h);
+			   inner_corner_radius(node->corner_radius, border), border, border,
+			   inner_w, inner_h);
 
 	node->logical_width = width;
 	node->logical_height = height;
