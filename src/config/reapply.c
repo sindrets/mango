@@ -108,7 +108,7 @@ void set_xcursor_env() {
 }
 
 void reapply_rootbg(void) {
-	wlr_scene_rect_set_color(server.root_bg, config.rootcolor);
+	scene_rect_set_color(server.root_bg, config.rootcolor);
 }
 
 void reapply_property(void) {

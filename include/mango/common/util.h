@@ -44,4 +44,16 @@ void wl_list_swap(struct wl_list *l1, struct wl_list *l2);
 void wl_list_safe_reinsert_prev(struct wl_list *l1, struct wl_list *l2);
 void wl_list_safe_reinsert_next(struct wl_list *l1, struct wl_list *l2);
 
+// wlr_scene_rect_set_color() wants a premultiplied colour, but config colours
+// are parsed as straight RGBA and several call sites dropped them in unchanged.
+// Multiplying here keeps a translucent colour from being read as a premultiplied
+// one, which brightens it: Vulkan's colour_to_linear_premult() divides the
+// channel by alpha before linearising, so a straight colour with a small alpha
+// comes out far too bright (0x88888801 rendered as near white).
+struct wlr_scene_rect;
+
+void premultiply_color(float out[static 4], const float color[static 4]);
+void scene_rect_set_color(struct wlr_scene_rect *rect,
+						  const float color[static 4]);
+
 #endif

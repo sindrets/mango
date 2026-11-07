@@ -293,7 +293,7 @@ void switcher_layout(void) {
 
 void switcher_apply_highlight(void) {
 	for (int i = 0; i < switcher_state.count; i++)
-		wlr_scene_rect_set_color(
+		scene_rect_set_color(
 			switcher_state.tiles[i]->frame,
 			i == switcher_state.index ? config.focuscolor : config.bordercolor);
 }

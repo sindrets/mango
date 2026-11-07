@@ -167,7 +167,7 @@ void special_update_dim(Monitor *m) {
 	wlr_scene_rect_set_size(m->special_dim_rect, m->m.width, m->m.height);
 	wlr_scene_node_set_position(&m->special_dim_rect->node, m->m.x, m->m.y);
 	if (is_special_active(m)) {
-		wlr_scene_rect_set_color(
+		scene_rect_set_color(
 			m->special_dim_rect,
 			(float[4]){0.0f, 0.0f, 0.0f, config.special_dim});
 		wlr_scene_node_set_enabled(&m->special_dim_rect->node, true);

@@ -1,4 +1,5 @@
 #include "mango/common/scene_node.h"
+#include "mango/common/util.h"
 #include <scenefx/types/wlr_scene.h>
 #include <stdlib.h>
 #include <wlr/util/box.h>
@@ -203,4 +204,11 @@ struct wlr_scene_node *mango_scene_node_at(struct wlr_scene_node *node,
 		*ny = ry;
 	}
 	return result;
+}
+
+void scene_rect_set_color(struct wlr_scene_rect *rect,
+						  const float color[static 4]) {
+	float premultiplied[4];
+	premultiply_color(premultiplied, color);
+	wlr_scene_rect_set_color(rect, premultiplied);
 }

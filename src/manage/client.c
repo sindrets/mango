@@ -373,7 +373,7 @@ void client_send_close(Client *c) {
 	wlr_xdg_toplevel_send_close(c->surface.xdg->toplevel);
 }
 void client_set_border_color(Client *c, const float color[4]) {
-	wlr_scene_rect_set_color(c->border, color);
+	scene_rect_set_color(c->border, color);
 }
 
 void client_set_state_colors(Client *c, const float border_color[4],
@@ -4616,9 +4616,9 @@ void client_set_group_config(Client *c) {
 	while (cur) {
 		mango_jump_label_node_apply_config(cur->jump_label_node,
 										   &config.jumplabeldata);
-		wlr_scene_rect_set_color(cur->droparea, config.dropcolor);
-		wlr_scene_rect_set_color(cur->splitindicator[0], config.splitcolor);
-		wlr_scene_rect_set_color(cur->splitindicator[1], config.splitcolor);
+		scene_rect_set_color(cur->droparea, config.dropcolor);
+		scene_rect_set_color(cur->splitindicator[0], config.splitcolor);
+		scene_rect_set_color(cur->splitindicator[1], config.splitcolor);
 		client_set_group_bar_config(cur);
 		cur = cur->group_next;
 	}

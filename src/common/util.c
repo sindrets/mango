@@ -251,3 +251,10 @@ void wl_list_safe_reinsert_next(struct wl_list *l1, struct wl_list *l2) {
 	wl_list_init(l2);
 	wl_list_insert(l1, l2);
 }
+
+void premultiply_color(float out[static 4], const float color[static 4]) {
+	out[0] = color[0] * color[3];
+	out[1] = color[1] * color[3];
+	out[2] = color[2] * color[3];
+	out[3] = color[3];
+}
