@@ -590,9 +590,14 @@ void client_draw_dim(Client *c, struct ivec2 clip_box) {
 		return;
 	}
 
+	// The dim overlay covers the surface, which sits inset by the border width
+	// and therefore has the inner radius, not the border's outer one.
 	int32_t radius = 0;
 	if (!client_no_radius_active(c)) {
-		radius = config.border_radius;
+		radius = config.border_radius - (int32_t)c->bw;
+	}
+	if (radius < 0) {
+		radius = 0;
 	}
 
 	mango_dim_node_set_radius(c->dim_node, radius);
@@ -1758,7 +1763,6 @@ bool client_step_focus_animation(Client *c, double linear_progress) {
 }
 
 void client_set_unfocused_opacity_animation(Client *c) {
-	wlr_scene_node_raise_to_top(&c->border->node);
 	if (!config.animations) {
 		client_update_border_color(c);
 		return;
