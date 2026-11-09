@@ -1775,9 +1775,8 @@ void client_set_unfocused_opacity_animation(Client *c) {
 
 	client_start_focus_animation(c, false);
 }
-void client_set_focused_opacity_animation(Client *c) {
-	wlr_scene_node_lower_to_bottom(&c->border->node);
 
+void client_set_focused_opacity_animation(Client *c) {
 	if (!config.animations) {
 		client_update_border_color(c);
 		return;
