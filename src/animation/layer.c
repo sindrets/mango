@@ -283,7 +283,8 @@ void layer_draw_shadow(LayerSurface *l) {
 
 	struct clipped_region clipped_region = {
 		.area = intersection_box,
-		.corners = corner_radii_all(config.border_radius),
+		.corners = corner_radii_all_exponent(config.border_radius,
+											 config.border_radius_exponent),
 	};
 
 	wlr_scene_node_set_position(&l->shadow->node, shadow_box.x, shadow_box.y);

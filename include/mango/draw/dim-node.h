@@ -28,7 +28,8 @@ MangoDimNode *mango_dim_node_create(struct wlr_scene_tree *parent,
 void mango_dim_node_destroy(MangoDimNode *node);
 
 void mango_dim_node_set_color(MangoDimNode *node, const float color[4]);
-void mango_dim_node_set_radius(MangoDimNode *node, int32_t radius);
+void mango_dim_node_set_radius(MangoDimNode *node, int32_t radius,
+							   float exponent);
 void mango_dim_node_set_box(MangoDimNode *node, int32_t x, int32_t y,
 							int32_t width, int32_t height);
 void mango_dim_node_set_enabled(MangoDimNode *node, bool enabled);

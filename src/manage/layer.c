@@ -248,6 +248,8 @@ void handle_layer_surface_map(struct wl_listener *listener, void *data) {
 			l->shadow = wlr_scene_shadow_create(
 				l->scene, 0, 0, config.border_radius, config.shadows_blur,
 				config.shadowscolor);
+			wlr_scene_shadow_set_corner_exponent(
+				l->shadow, config.border_radius_exponent);
 			wlr_scene_node_lower_to_bottom(&l->shadow->node);
 			wlr_scene_node_set_enabled(&l->shadow->node, true);
 		}

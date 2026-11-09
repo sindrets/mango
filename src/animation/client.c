@@ -84,8 +84,8 @@ void set_rect_size(struct wlr_scene_rect *rect, int32_t width, int32_t height) {
 	wlr_scene_rect_set_size(rect, GEZERO(width), GEZERO(height));
 }
 struct fx_corner_radii set_client_corner_location(Client *c) {
-	struct fx_corner_radii current_corner_location =
-		corner_radii_all(config.border_radius);
+	struct fx_corner_radii current_corner_location = corner_radii_all_exponent(
+		config.border_radius, config.border_radius_exponent);
 
 	if (client_no_radius_active(c))
 		return corner_radii_none();
@@ -124,8 +124,12 @@ struct fx_corner_radii set_client_corner_location(Client *c) {
 struct fx_corner_radii client_inner_corner_location(Client *c,
 												struct fx_corner_radii outer) {
 	int32_t bw = (int32_t)c->bw;
-	return corner_radii_new(outer.top_left - bw, outer.top_right - bw,
-						outer.bottom_right - bw, outer.bottom_left - bw);
+	struct fx_corner_radii inner = corner_radii_new(
+		outer.top_left - bw, outer.top_right - bw, outer.bottom_right - bw,
+		outer.bottom_left - bw);
+	// The inner edge is the same curve, just smaller, so it keeps the exponent.
+	inner.exponent = outer.exponent;
+	return inner;
 }
 
 bool is_horizontal_stack_layout(Monitor *m) {
@@ -600,7 +604,8 @@ void client_draw_dim(Client *c, struct ivec2 clip_box) {
 		radius = 0;
 	}
 
-	mango_dim_node_set_radius(c->dim_node, radius);
+	mango_dim_node_set_radius(c->dim_node, radius,
+							  config.border_radius_exponent);
 	mango_dim_node_set_enabled(c->dim_node, true);
 	mango_dim_node_set_box(c->dim_node, dim_x, dim_y, dim_width, dim_height);
 }

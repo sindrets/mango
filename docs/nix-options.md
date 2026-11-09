@@ -292,6 +292,7 @@ Mango configuration value
     num_passes = 2;
   };
   border_radius = 6;
+  border_radius_exponent = 2.0;
   focused_opacity = 1.0;
 
   # Animations - use underscores for multi-part keys

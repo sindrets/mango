@@ -2413,13 +2413,16 @@ void handle_client_map(struct wl_listener *listener, void *data) {
 		c->scene, 0, 0, c->isurgent ? config.urgentcolor : config.bordercolor);
 	wlr_scene_node_lower_to_bottom(&c->border->node);
 	wlr_scene_node_set_position(&c->border->node, 0, 0);
-	wlr_scene_rect_set_corner_radii(c->border,
-									corner_radii_all(config.border_radius));
+	wlr_scene_rect_set_corner_radii(
+		c->border, corner_radii_all_exponent(config.border_radius,
+											 config.border_radius_exponent));
 	wlr_scene_node_set_enabled(&c->border->node, true);
 
 	c->shadow =
 		wlr_scene_shadow_create(c->scene, 0, 0, config.border_radius,
 								config.shadows_blur, config.shadowscolor);
+	wlr_scene_shadow_set_corner_exponent(c->shadow,
+										 config.border_radius_exponent);
 
 	c->blur = wlr_scene_blur_create(c->scene, 0, 0);
 	wlr_scene_node_lower_to_bottom(&c->blur->node);

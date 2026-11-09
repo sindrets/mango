@@ -59,6 +59,7 @@ Control the transparency and roundness of your windows.
 | Setting | Default | Description |
 | :--- | :--- | :--- |
 | `border_radius` | `0` | Window corner radius in pixels. |
+| `border_radius_exponent` | `2.0` | Superellipse exponent of the corner curve (`1.0` - `16.0`). `2.0` is a circular corner; higher values give a squircle with continuous curvature. |
 | `no_radius_when_single` | `0` | Disable radius if only one window is visible. |
 | `focused_opacity` | `1.0` | Opacity for the active window (0.0 - 1.0). |
 | `unfocused_opacity` | `1.0` | Opacity for inactive windows (0.0 - 1.0). |
@@ -66,6 +67,10 @@ Control the transparency and roundness of your windows.
 ```ini
 # Window corner radius in pixels
 border_radius=0
+
+# Shape of the corner curve. 2.0 is a circle; increasing it gives the smoother
+# "squircle" look that flows into the window edge without a kink.
+border_radius_exponent=2.0
 
 # Disable radius if only one window is visible
 no_radius_when_single=0

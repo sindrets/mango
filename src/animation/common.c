@@ -260,6 +260,8 @@ bool scene_node_snapshot(struct wlr_scene_node *node, int32_t lx, int32_t ly,
 
 		wlr_scene_shadow_set_clipped_region(snapshot_shadow,
 											scene_shadow->clipped_region);
+		wlr_scene_shadow_set_corner_exponent(snapshot_shadow,
+											 scene_shadow->corner_exponent);
 
 		wlr_scene_node_set_enabled(&snapshot_shadow->node, false);
 

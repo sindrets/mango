@@ -201,6 +201,8 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		config->blur_optimized = atoi(value);
 	} else if (strcmp(key, "border_radius") == 0) {
 		config->border_radius = atoi(value);
+	} else if (strcmp(key, "border_radius_exponent") == 0) {
+		config->border_radius_exponent = atof(value);
 	} else if (strcmp(key, "blur_params_num_passes") == 0) {
 		config->blur_params.num_passes = atoi(value);
 	} else if (strcmp(key, "blur_params_radius") == 0) {
@@ -2567,6 +2569,7 @@ void set_value_default() {
 	config.blur_layer = 0;
 	config.blur_optimized = 1;
 	config.border_radius = 0;
+	config.border_radius_exponent = 2.0f;
 	config.blur_params.num_passes = 1;
 	config.blur_params.radius = 5;
 	config.blur_params.noise = 0.02f;
@@ -2966,6 +2969,8 @@ void override_config(void) {
 	config.blur_layer = CLAMP_INT(config.blur_layer, 0, 1);
 	config.blur_optimized = CLAMP_INT(config.blur_optimized, 0, 1);
 	config.border_radius = CLAMP_INT(config.border_radius, 0, 100);
+	config.border_radius_exponent =
+		CLAMP_FLOAT(config.border_radius_exponent, 1.0f, 16.0f);
 	config.blur_params.num_passes =
 		CLAMP_INT(config.blur_params.num_passes, 0, 10);
 	config.blur_params.radius = CLAMP_INT(config.blur_params.radius, 0, 100);
