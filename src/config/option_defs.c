@@ -52,6 +52,13 @@ static bool is_title_message_bar_decorate_key(const char *key,
 	return strcmp(key, candidate) == 0;
 }
 
+static bool is_title_bar_decorate_key(const char *key, const char *name) {
+	char candidate[128];
+
+	snprintf(candidate, sizeof(candidate), "title_bar_decorate_%s", name);
+	return strcmp(key, candidate) == 0;
+}
+
 bool parse_option(Config *config, char *key, char *value, int line_number) {
 	if (strcmp(key, "key_mode") == 0) {
 		snprintf(config->keymode, sizeof(config->keymode), "%.27s", value);
@@ -721,6 +728,73 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 	} else if (is_title_message_bar_decorate_key(key, "padding_y")) {
 		config->title_message_bardata.padding_y =
 			CLAMP_INT(atoi(value), 0, 100);
+	} else if (is_title_bar_decorate_key(key, "font_desc")) {
+		if (config->title_bardata.font_desc)
+			free((void *)config->title_bardata.font_desc);
+		config->title_bardata.font_desc = strdup(value);
+	} else if (is_title_bar_decorate_key(key, "fg_color")) {
+		int64_t color = parse_color(value);
+		if (color == -1) {
+			mango_error(false, WLR_ERROR,
+						"Invalid title_bar_decorate_fg_color "
+						"format: \033[1m\033[31m%s\033[0m\n",
+						value);
+			return false;
+		} else {
+			convert_hex_to_rgba(config->title_bardata.fg_color, color);
+		}
+	} else if (is_title_bar_decorate_key(key, "bg_color")) {
+		int64_t color = parse_color(value);
+		if (color == -1) {
+			mango_error(false, WLR_ERROR,
+						"Invalid title_bar_decorate_bg_color "
+						"format: \033[1m\033[31m%s\033[0m\n",
+						value);
+			return false;
+		} else {
+			convert_hex_to_rgba(config->title_bardata.bg_color, color);
+		}
+	} else if (is_title_bar_decorate_key(key, "focus_fg_color")) {
+		int64_t color = parse_color(value);
+		if (color == -1) {
+			mango_error(false, WLR_ERROR,
+						"Invalid title_bar_decorate_focus_fg_color "
+						"format: \033[1m\033[31m%s\033[0m\n",
+						value);
+			return false;
+		} else {
+			convert_hex_to_rgba(config->title_bardata.focus_fg_color, color);
+		}
+	} else if (is_title_bar_decorate_key(key, "focus_bg_color")) {
+		int64_t color = parse_color(value);
+		if (color == -1) {
+			mango_error(false, WLR_ERROR,
+						"Invalid title_bar_decorate_focus_bg_color "
+						"format: \033[1m\033[31m%s\033[0m\n",
+						value);
+			return false;
+		} else {
+			convert_hex_to_rgba(config->title_bardata.focus_bg_color, color);
+		}
+	} else if (is_title_bar_decorate_key(key, "border_color")) {
+		int64_t color = parse_color(value);
+		if (color == -1) {
+			mango_error(false, WLR_ERROR,
+						"Invalid title_bar_decorate_border_color "
+						"format: \033[1m\033[31m%s\033[0m\n",
+						value);
+			return false;
+		} else {
+			convert_hex_to_rgba(config->title_bardata.border_color, color);
+		}
+	} else if (is_title_bar_decorate_key(key, "border_width")) {
+		config->title_bardata.border_width = CLAMP_INT(atoi(value), 0, 100);
+	} else if (is_title_bar_decorate_key(key, "corner_radius")) {
+		config->title_bardata.corner_radius = CLAMP_INT(atoi(value), 0, 100);
+	} else if (is_title_bar_decorate_key(key, "padding_x")) {
+		config->title_bardata.padding_x = CLAMP_INT(atoi(value), 0, 100);
+	} else if (is_title_bar_decorate_key(key, "padding_y")) {
+		config->title_bardata.padding_y = CLAMP_INT(atoi(value), 0, 100);
 	} else if (strcmp(key, "tab_bar_decorate_font_desc") == 0) {
 		if (config->tabbardata.font_desc)
 			free((void *)config->tabbardata.font_desc);
@@ -939,6 +1013,16 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		config->title_message_bar_height = atoi(value);
 	} else if (strcmp(key, "title_message_bar_gap") == 0) {
 		config->title_message_bar_gap = atoi(value);
+	} else if (strcmp(key, "title_bar_height") == 0) {
+		config->title_bar_height = atoi(value);
+	} else if (strcmp(key, "title_bar_button_size") == 0) {
+		config->title_bar_button_size = atoi(value);
+	} else if (strcmp(key, "title_bar_button_gap") == 0) {
+		config->title_bar_button_gap = atoi(value);
+	} else if (strcmp(key, "title_bar_button_margin") == 0) {
+		config->title_bar_button_margin = atoi(value);
+	} else if (strcmp(key, "title_bar_buttons_left") == 0) {
+		config->title_bar_buttons_left = atoi(value);
 	} else if (strcmp(key, "always_show_group_bar") == 0) {
 		config->always_show_group_bar = atoi(value);
 	} else if (strcmp(key, "group_bar_close_button_enable") == 0) {
@@ -1458,6 +1542,7 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		rule->no_border = -1;
 		rule->no_shadow = -1;
 		rule->no_radius = -1;
+		rule->no_title_bar = -1;
 		rule->no_animation = -1;
 		rule->isopensilent = -1;
 		rule->istagsilent = -1;
@@ -1559,6 +1644,8 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 					rule->no_shadow = atoi(val);
 				} else if (strcmp(key, "no_radius") == 0) {
 					rule->no_radius = atoi(val);
+				} else if (strcmp(key, "no_title_bar") == 0) {
+					rule->no_title_bar = atoi(val);
 				} else if (strcmp(key, "no_animation") == 0) {
 					rule->no_animation = atoi(val);
 				} else if (strcmp(key, "is_open_silent") == 0) {
@@ -2521,6 +2608,14 @@ void set_value_default() {
 	config.group_bar_button_color[1] = 0x40 / 255.0f;
 	config.group_bar_button_color[2] = 0x1f / 255.0f;
 	config.group_bar_button_color[3] = 1.0f;
+
+	/* Title bars: rounded top strip drawn inside the window frame, with
+	 * MacOS-like traffic lights on the left. */
+	config.title_bar_height = 30;
+	config.title_bar_button_size = 12;
+	config.title_bar_button_gap = 8;
+	config.title_bar_button_margin = 10;
+	config.title_bar_buttons_left = 1;
 	config.overviewgappi = 5;
 	config.overviewgappo = 30;
 	config.overcircle_center_ratio = 0.5f;
@@ -2657,6 +2752,22 @@ void set_value_default() {
 	config.title_message_bardata = config.groupbardata;
 	config.title_message_bardata.border_width = 0;
 	config.title_message_bardata.corner_radius = 15;
+
+	/* The title bar fills the top of the window frame, so it inherits the
+	 * window colors instead of standing out like a tab strip. A
+	 * `corner_radius` of 0 means "follow the window border radius", which
+	 * is what makes the bar read as part of the window. */
+	config.title_bardata = config.groupbardata;
+	config.title_bardata.border_width = 0;
+	config.title_bardata.corner_radius = 0;
+	config.title_bardata.bg_color[0] = 0x32 / 255.0f;
+	config.title_bardata.bg_color[1] = 0x30 / 255.0f;
+	config.title_bardata.bg_color[2] = 0x2f / 255.0f;
+	config.title_bardata.bg_color[3] = 1.0f;
+	config.title_bardata.focus_bg_color[0] = 0x1d / 255.0f;
+	config.title_bardata.focus_bg_color[1] = 0x20 / 255.0f;
+	config.title_bardata.focus_bg_color[2] = 0x21 / 255.0f;
+	config.title_bardata.focus_bg_color[3] = 1.0f;
 
 	config.tabbardata.fg_color[0] = 0xc0 / 255.0f;
 	config.tabbardata.fg_color[1] = 0xca / 255.0f;
@@ -2964,6 +3075,14 @@ void override_config(void) {
 		CLAMP_INT(config.group_bar_button_size, 4, 64);
 	config.group_bar_button_margin =
 		CLAMP_INT(config.group_bar_button_margin, 0, 50);
+	config.title_bar_height = CLAMP_INT(config.title_bar_height, 0, 500);
+	config.title_bar_button_size =
+		CLAMP_INT(config.title_bar_button_size, 4, 64);
+	config.title_bar_button_gap = CLAMP_INT(config.title_bar_button_gap, 0, 64);
+	config.title_bar_button_margin =
+		CLAMP_INT(config.title_bar_button_margin, 0, 64);
+	config.title_bar_buttons_left =
+		CLAMP_INT(config.title_bar_buttons_left, 0, 1);
 	config.smartgaps = CLAMP_INT(config.smartgaps, 0, 1);
 	config.blur = CLAMP_INT(config.blur, 0, 1);
 	config.blur_layer = CLAMP_INT(config.blur_layer, 0, 1);
@@ -3012,6 +3131,24 @@ void override_config(void) {
 		CLAMP_INT(config.title_message_bardata.padding_x, 0, 100);
 	config.title_message_bardata.padding_y =
 		CLAMP_INT(config.title_message_bardata.padding_y, 0, 100);
+
+	config.title_bardata.border_width =
+		CLAMP_INT(config.title_bardata.border_width, 0, 100);
+	config.title_bardata.corner_radius =
+		CLAMP_INT(config.title_bardata.corner_radius, 0, 100);
+	config.title_bardata.padding_x =
+		CLAMP_INT(config.title_bardata.padding_x, 0, 100);
+	config.title_bardata.padding_y =
+		CLAMP_INT(config.title_bardata.padding_y, 0, 100);
+
+	config.title_bardata.border_width =
+		CLAMP_INT(config.title_bardata.border_width, 0, 100);
+	config.title_bardata.corner_radius =
+		CLAMP_INT(config.title_bardata.corner_radius, 0, 100);
+	config.title_bardata.padding_x =
+		CLAMP_INT(config.title_bardata.padding_x, 0, 100);
+	config.title_bardata.padding_y =
+		CLAMP_INT(config.title_bardata.padding_y, 0, 100);
 
 	config.tabbardata.border_width =
 		CLAMP_INT(config.tabbardata.border_width, 0, 100);

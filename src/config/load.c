@@ -384,6 +384,7 @@ bool parse_config(void) {
 	config.jumplabeldata.font_desc = NULL;
 	config.groupbardata.font_desc = NULL;
 	config.title_message_bardata.font_desc = NULL;
+	config.title_bardata.font_desc = NULL;
 	config.jump_labels = NULL;
 	strcpy(config.keymode, "default");
 

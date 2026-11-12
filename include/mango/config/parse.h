@@ -120,6 +120,7 @@ typedef struct {
 	int32_t no_border;
 	int32_t no_shadow;
 	int32_t no_radius;
+	int32_t no_title_bar;
 	int32_t no_animation;
 	int32_t isopensilent;
 	int32_t istagsilent;
@@ -501,6 +502,15 @@ typedef struct {
 	uint32_t group_bar_button_size;
 	uint32_t group_bar_button_margin;
 	float group_bar_button_color[4];
+
+	/* Title bars: a MacOS-like strip with traffic-light buttons drawn
+	 * inside the top of the window frame. Zero height disables them
+	 * globally. */
+	uint32_t title_bar_height;
+	uint32_t title_bar_button_size;
+	uint32_t title_bar_button_gap;
+	uint32_t title_bar_button_margin;
+	int32_t title_bar_buttons_left;
 	float scratchpad_width_ratio;
 	float scratchpad_height_ratio;
 	float special_dim;
@@ -589,6 +599,7 @@ typedef struct {
 	DecorateDrawData groupbardata;
 	DecorateDrawData tabbardata;
 	DecorateDrawData title_message_bardata;
+	DecorateDrawData title_bardata;
 
 	int32_t hdr_depth;
 	/* Auto-HDR: 0 = off, 1 = on. Switches a monitor to HDR while a fullscreen
