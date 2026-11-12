@@ -76,9 +76,29 @@ static const struct wlr_buffer_impl text_buffer_impl = {
 	.end_data_ptr_access = text_buffer_end_data_ptr_access,
 };
 
+/* Clamps every corner radius of `corners` to the largest arc that fits in a
+ * width x height box. A negative radius means "as round as possible". */
+static struct fx_corner_radii clamp_corners(struct fx_corner_radii corners,
+											int32_t width, int32_t height) {
+	int32_t limit = (width < height ? width : height) / 2;
+	if (limit < 0) {
+		limit = 0;
+	}
+
+	struct fx_corner_radii clamped = corners;
+	uint16_t *values[4] = {&clamped.top_left, &clamped.top_right,
+						   &clamped.bottom_right, &clamped.bottom_left};
+	for (size_t i = 0; i < 4; i++) {
+		if (*values[i] > limit) {
+			*values[i] = limit;
+		}
+	}
+	return clamped;
+}
+
 static void rect_apply(struct wlr_scene_rect *rect, const float color[4],
-					   int32_t radius, int32_t x, int32_t y, int32_t width,
-					   int32_t height) {
+					   struct fx_corner_radii corners, int32_t x, int32_t y,
+					   int32_t width, int32_t height) {
 	float premultiplied[4] = {
 		color[0] * color[3],
 		color[1] * color[3],
@@ -95,13 +115,8 @@ static void rect_apply(struct wlr_scene_rect *rect, const float color[4],
 	}
 
 #if TEXT_NODE_CORNER_RADIUS
-	int32_t limit = (width < height ? width : height) / 2;
-	if (radius < 0) {
-		radius = limit;
-	} else if (radius > limit) {
-		radius = limit;
-	}
-	wlr_scene_rect_set_corner_radii(rect, corner_radii_all(radius));
+	wlr_scene_rect_set_corner_radii(rect,
+									clamp_corners(corners, width, height));
 #endif
 
 	wlr_scene_node_set_position(&rect->node, x, y);
@@ -116,10 +131,19 @@ static int32_t inner_corner_radius(int32_t outer_radius, int32_t border) {
 	return inner > 0 ? inner : 0;
 }
 
+static struct fx_corner_radii inner_corners_of(struct fx_corner_radii outer,
+											   int32_t border) {
+	return corner_radii_new(inner_corner_radius(outer.top_left, border),
+							inner_corner_radius(outer.top_right, border),
+							inner_corner_radius(outer.bottom_right, border),
+							inner_corner_radius(outer.bottom_left, border));
+}
+
 static void rect_apply_border(struct wlr_scene_rect *rect, const float color[4],
-							  int32_t outer_radius, int32_t inner_radius,
-							  int32_t border, int32_t width, int32_t height) {
-	rect_apply(rect, color, outer_radius, 0, 0, width, height);
+							  struct fx_corner_radii outer,
+							  struct fx_corner_radii inner, int32_t border,
+							  int32_t width, int32_t height) {
+	rect_apply(rect, color, outer, 0, 0, width, height);
 
 #if TEXT_NODE_CORNER_RADIUS
 	int32_t inner_w = width - 2 * border;
@@ -132,7 +156,7 @@ static void rect_apply_border(struct wlr_scene_rect *rect, const float color[4],
 			.width = inner_w,
 			.height = inner_h,
 		};
-		clipped.corners = corner_radii_all(inner_radius);
+		clipped.corners = clamp_corners(inner, inner_w, inner_h);
 		wlr_scene_rect_set_clipped_region(rect, clipped);
 	} else {
 		wlr_scene_rect_set_clipped_region(rect, clipped_region_get_default());
@@ -522,12 +546,13 @@ static void jump_label_apply_geometry(MangoJumpLabel *node) {
 	node->logical_width = width;
 	node->logical_height = height;
 
-	rect_apply_border(node->border, node->border_color, node->corner_radius,
-					  inner_corner_radius(node->corner_radius, border), border,
+	struct fx_corner_radii outer = corner_radii_all(node->corner_radius);
+	struct fx_corner_radii inner = inner_corners_of(outer, border);
+
+	rect_apply_border(node->border, node->border_color, outer, inner, border,
 					  width, height);
 	rect_apply(node->bg, node->focused ? node->focus_bg_color : node->bg_color,
-			   inner_corner_radius(node->corner_radius, border), border, border,
-			   width - 2 * border, height - 2 * border);
+			   inner, border, border, width - 2 * border, height - 2 * border);
 
 	wlr_scene_node_set_position(&node->scene_buffer->node,
 								border + node->padding_x,
@@ -656,6 +681,50 @@ MangoBarDecoration *mango_bar_decoration_create(void *cdata, uint32_t type,
 	}
 	wlr_scene_node_set_enabled(&mangobar->close_buffer->node, false);
 
+	mangobar->hover_button = -1;
+	for (int32_t i = 0; i < MANGO_BAR_BUTTON_COUNT; i++) {
+		MangoBarButton *button = &mangobar->buttons[i];
+		button->scene_buffer = wlr_scene_buffer_create(mangobar->scene, NULL);
+		if (!button->scene_buffer) {
+			wlr_scene_node_destroy(&mangobar->scene->node);
+			free(mangobar);
+			return NULL;
+		}
+		wlr_scene_node_set_enabled(&button->scene_buffer->node, false);
+
+		/* MacOS-like traffic lights: close red, minimize yellow,
+		 * maximize green. */
+		switch (i) {
+		case MANGO_BAR_BUTTON_CLOSE:
+			button->color[0] = 0xff / 255.0f;
+			button->color[1] = 0x5f / 255.0f;
+			button->color[2] = 0x57 / 255.0f;
+			break;
+		case MANGO_BAR_BUTTON_MINIMIZE:
+			button->color[0] = 0xfe / 255.0f;
+			button->color[1] = 0xbc / 255.0f;
+			button->color[2] = 0x2e / 255.0f;
+			break;
+		default:
+			button->color[0] = 0x28 / 255.0f;
+			button->color[1] = 0xc8 / 255.0f;
+			button->color[2] = 0x40 / 255.0f;
+			break;
+		}
+		button->color[3] = 1.0f;
+		for (int c = 0; c < 3; c++)
+			button->hover_color[c] =
+				button->color[c] + (1.0f - button->color[c]) * 0.4f;
+		button->hover_color[3] = 1.0f;
+
+		/* The glyph is a dark tint of the circle so it reads on all
+		 * three colors. */
+		button->glyph_color[0] = button->color[0] * 0.35f;
+		button->glyph_color[1] = button->color[1] * 0.35f;
+		button->glyph_color[2] = button->color[2] * 0.35f;
+		button->glyph_color[3] = 1.0f;
+	}
+
 	memcpy(mangobar->fg_color, data.fg_color, sizeof(mangobar->fg_color));
 	memcpy(mangobar->bg_color, data.bg_color, sizeof(mangobar->bg_color));
 	memcpy(mangobar->focus_fg_color, data.focus_fg_color,
@@ -708,6 +777,12 @@ void mango_bar_decoration_destroy(MangoBarDecoration *node) {
 		wlr_buffer_drop(&node->close_texture->base);
 		node->close_texture = NULL;
 	}
+	for (int32_t i = 0; i < MANGO_BAR_BUTTON_COUNT; i++) {
+		if (node->buttons[i].texture) {
+			wlr_buffer_drop(&node->buttons[i].texture->base);
+			node->buttons[i].texture = NULL;
+		}
+	}
 	if (node->scene) {
 		wlr_scene_node_destroy(&node->scene->node);
 		node->scene = NULL;
@@ -722,10 +797,193 @@ void mango_bar_decoration_destroy(MangoBarDecoration *node) {
 	free(node);
 }
 
+/* Width of the traffic-light strip: all buttons plus the gaps between them. */
+static int32_t bar_buttons_strip_width(const MangoBarDecoration *node) {
+	if (!node->buttons_enabled || node->button_size <= 0)
+		return 0;
+
+	int32_t strip = MANGO_BAR_BUTTON_COUNT * node->button_size +
+					(MANGO_BAR_BUTTON_COUNT - 1) * node->button_gap;
+	return strip;
+}
+
+/* Square box a traffic-light button occupies. */
+static bool bar_button_box(const MangoBarDecoration *node, int32_t index,
+						   int32_t *out_x, int32_t *out_y, int32_t *out_size) {
+	if (!node->buttons_enabled || index < 0 ||
+		index >= MANGO_BAR_BUTTON_COUNT || node->button_size <= 0 ||
+		node->target_width <= 0 || node->target_height <= 0)
+		return false;
+
+	int32_t size = node->button_size;
+	if (size > node->target_height)
+		size = node->target_height;
+
+	int32_t strip = bar_buttons_strip_width(node);
+	int32_t margin = node->button_margin;
+	int32_t space = node->target_width - strip;
+	if (space < 0)
+		space = 0;
+	if (margin > space)
+		margin = space;
+
+	*out_size = size;
+	*out_x = node->buttons_left ? margin + index * (size + node->button_gap)
+								: node->target_width - margin - strip +
+									  index * (size + node->button_gap);
+	*out_y = (node->target_height - size) / 2;
+	return true;
+}
+
+static void bar_button_render(MangoBarDecoration *node, int32_t index,
+							  int32_t size, int32_t pixel, float scale,
+							  bool hover) {
+	MangoBarButton *button = &node->buttons[index];
+
+	cairo_surface_t *surface =
+		cairo_image_surface_create(CAIRO_FORMAT_ARGB32, pixel, pixel);
+	if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
+		cairo_surface_destroy(surface);
+		text_node_install(button->scene_buffer, &button->texture, NULL, 0, 0);
+		return;
+	}
+
+	cairo_t *cr = cairo_create(surface);
+	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+	cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.0);
+	cairo_paint(cr);
+	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+
+	double center = pixel / 2.0;
+	const float *circle = hover ? button->hover_color : button->color;
+	cairo_set_source_rgba(cr, circle[0], circle[1], circle[2], circle[3]);
+	cairo_arc(cr, center, center, center, 0, 2 * 3.14159265358979323846);
+	cairo_fill(cr);
+
+	double line_width = pixel * 0.12;
+	if (line_width < 1.0)
+		line_width = 1.0;
+	cairo_set_line_width(cr, line_width);
+	cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+	cairo_set_source_rgba(cr, button->glyph_color[0], button->glyph_color[1],
+						  button->glyph_color[2], button->glyph_color[3]);
+
+	double inset = pixel * 0.32;
+	double lo = inset, hi = pixel - inset;
+
+	switch (index) {
+	case MANGO_BAR_BUTTON_CLOSE:
+		cairo_move_to(cr, lo, lo);
+		cairo_line_to(cr, hi, hi);
+		cairo_move_to(cr, hi, lo);
+		cairo_line_to(cr, lo, hi);
+		cairo_stroke(cr);
+		break;
+	case MANGO_BAR_BUTTON_MINIMIZE:
+		cairo_move_to(cr, lo, center);
+		cairo_line_to(cr, hi, center);
+		cairo_stroke(cr);
+		break;
+	case MANGO_BAR_BUTTON_MAXIMIZE: {
+		double half = pixel * 0.20;
+		cairo_set_line_width(cr, line_width);
+		cairo_rectangle(cr, center - half, center - half, half * 2, half * 2);
+		cairo_stroke(cr);
+		break;
+	}
+	default:
+		break;
+	}
+
+	cairo_surface_flush(surface);
+	cairo_destroy(cr);
+
+	text_node_install(button->scene_buffer, &button->texture, surface, pixel,
+					  pixel);
+
+	button->cached_size = size;
+	button->cached_scale = scale;
+	button->cached_hover = hover;
+	button->cached_valid = true;
+}
+
+static void bar_buttons_sync(MangoBarDecoration *node) {
+	float scale = node->last_scale > 0.0f ? node->last_scale : 1.0f;
+
+	for (int32_t i = 0; i < MANGO_BAR_BUTTON_COUNT; i++) {
+		MangoBarButton *button = &node->buttons[i];
+		if (!button->scene_buffer)
+			continue;
+
+		int32_t x = 0, y = 0, size = 0;
+		if (!bar_button_box(node, i, &x, &y, &size)) {
+			text_node_install(button->scene_buffer, &button->texture, NULL, 0,
+							  0);
+			button->cached_valid = false;
+			wlr_scene_node_set_enabled(&button->scene_buffer->node, false);
+			continue;
+		}
+
+		int32_t pixel = (int32_t)(size * scale + 0.5f);
+		if (pixel < 1)
+			pixel = 1;
+
+		bool hover = node->hover_button == i;
+		if (!button->cached_valid || button->cached_size != size ||
+			button->cached_scale != scale || button->cached_hover != hover) {
+			bar_button_render(node, i, size, pixel, scale, hover);
+		}
+
+		wlr_scene_buffer_set_dest_size(button->scene_buffer, size, size);
+		wlr_scene_node_set_position(&button->scene_buffer->node, x, y);
+		wlr_scene_node_set_enabled(&button->scene_buffer->node, true);
+	}
+}
+
+/* Left/right inset of the title text inside the bar. The traffic lights take
+ * the same room on both sides, so the title stays centered in the bar instead
+ * of drifting away from whichever edge holds the buttons. */
+static int32_t bar_decoration_side_inset(const MangoBarDecoration *node) {
+	int32_t inset = node->border_width > 0 ? node->border_width : 0;
+	inset += node->padding_x;
+
+	int32_t strip = bar_buttons_strip_width(node);
+	if (strip > 0) {
+		int32_t reserved = strip + node->button_margin;
+		if (reserved > inset) {
+			inset = reserved;
+		}
+	}
+
+	return inset;
+}
+
 static int32_t bar_decoration_avail_width(MangoBarDecoration *node) {
-	int32_t border = node->border_width > 0 ? node->border_width : 0;
-	int32_t avail = node->target_width - 2 * border - 2 * node->padding_x;
+	int32_t avail = node->target_width - 2 * bar_decoration_side_inset(node);
 	return avail > 0 ? avail : 0;
+}
+static struct fx_corner_radii
+bar_outer_corners(const MangoBarDecoration *node) {
+	if (node->corners_override)
+		return node->corners;
+	return corner_radii_all(node->corner_radius);
+}
+
+void mango_bar_decoration_set_corners(MangoBarDecoration *node,
+									  struct fx_corner_radii corners) {
+	if (!node)
+		return;
+	/* Called from the per-frame draw path, so a no-op must stay cheap. */
+	if (node->corners_override &&
+		memcmp(&node->corners, &corners, sizeof(corners)) == 0)
+		return;
+
+	node->corners_override = true;
+	node->corners = corners;
+	if (node->cached_text) {
+		float scale = node->last_scale > 0.0f ? node->last_scale : 1.0f;
+		mango_bar_decoration_update(node, node->last_text, scale);
+	}
 }
 
 static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
@@ -746,15 +1004,17 @@ static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 		node->text_logical_h = 0;
 		node->logical_width = 0;
 		node->logical_height = 0;
+		bar_buttons_sync(node);
 		return;
 	}
 
-	rect_apply_border(node->border, node->border_color, node->corner_radius,
-					  inner_corner_radius(node->corner_radius, border), border,
+	struct fx_corner_radii outer = bar_outer_corners(node);
+	struct fx_corner_radii inner = inner_corners_of(outer, border);
+
+	rect_apply_border(node->border, node->border_color, outer, inner, border,
 					  width, height);
 	rect_apply(node->bg, node->focused ? node->focus_bg_color : node->bg_color,
-			   inner_corner_radius(node->corner_radius, border), border, border,
-			   inner_w, inner_h);
+			   inner, border, border, inner_w, inner_h);
 
 	node->logical_width = width;
 	node->logical_height = height;
@@ -773,9 +1033,12 @@ static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 		offset_y = 0;
 	}
 
-	wlr_scene_node_set_position(&node->scene_buffer->node,
-								border + node->padding_x + offset_x,
+	int32_t text_x = bar_decoration_side_inset(node) + offset_x;
+
+	wlr_scene_node_set_position(&node->scene_buffer->node, text_x,
 								border + node->padding_y + offset_y);
+
+	bar_buttons_sync(node);
 }
 
 void mango_bar_decoration_set_size(MangoBarDecoration *node, int32_t width,
@@ -1073,6 +1336,77 @@ bool mango_bar_decoration_close_contains(MangoBarDecoration *node, double lx,
 		return false;
 
 	return lx >= x && lx < x + size && ly >= y && ly < y + size;
+}
+
+void mango_bar_decoration_set_buttons(MangoBarDecoration *node, bool enabled,
+									  bool left, int32_t size, int32_t gap,
+									  int32_t margin) {
+	if (!node)
+		return;
+	if (node->buttons_enabled == enabled && node->buttons_left == left &&
+		node->button_size == size && node->button_gap == gap &&
+		node->button_margin == margin)
+		return;
+
+	node->buttons_enabled = enabled;
+	node->buttons_left = left;
+	node->button_size = size;
+	node->button_gap = gap;
+	node->button_margin = margin;
+
+	if (!enabled)
+		node->hover_button = -1;
+
+	if (node->last_text) {
+		float scale = node->last_scale > 0.0f ? node->last_scale : 1.0f;
+		mango_bar_decoration_update(node, node->last_text, scale);
+	} else {
+		bar_buttons_sync(node);
+	}
+}
+
+void mango_bar_decoration_set_button_color(MangoBarDecoration *node,
+										   int32_t button,
+										   const float circle[4]) {
+	if (!node || !circle || button < 0 || button >= MANGO_BAR_BUTTON_COUNT)
+		return;
+
+	MangoBarButton *target = &node->buttons[button];
+	memcpy(target->color, circle, sizeof(target->color));
+	for (int i = 0; i < 3; i++)
+		target->hover_color[i] = circle[i] + (1.0f - circle[i]) * 0.4f;
+	target->hover_color[3] = circle[3];
+
+	target->cached_valid = false;
+	bar_buttons_sync(node);
+}
+
+void mango_bar_decoration_set_button_hover(MangoBarDecoration *node,
+										   int32_t button, bool hover) {
+	if (!node)
+		return;
+
+	int32_t next = hover ? button : -1;
+	if (node->hover_button == next)
+		return;
+
+	node->hover_button = next;
+	bar_buttons_sync(node);
+}
+
+int32_t mango_bar_decoration_button_at(MangoBarDecoration *node, double lx,
+									   double ly) {
+	if (!node)
+		return -1;
+
+	for (int32_t i = 0; i < MANGO_BAR_BUTTON_COUNT; i++) {
+		int32_t x = 0, y = 0, size = 0;
+		if (!bar_button_box(node, i, &x, &y, &size))
+			continue;
+		if (lx >= x && lx < x + size && ly >= y && ly < y + size)
+			return i;
+	}
+	return -1;
 }
 
 void mango_jump_label_node_apply_config(MangoJumpLabel *node,

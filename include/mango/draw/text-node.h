@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #if defined(__has_include) && __has_include(<scenefx/types/wlr_scene.h>)
+#include <scenefx/types/fx/clipped_region.h>
 #include <scenefx/types/wlr_scene.h>
 #else
 #include <wlr/types/wlr_scene.h>
@@ -74,6 +75,26 @@ typedef struct MangoJumpLabel {
 	int32_t logical_height;
 } MangoJumpLabel;
 
+/* Traffic-light buttons of a title bar, in drawing order. */
+enum {
+	MANGO_BAR_BUTTON_CLOSE,
+	MANGO_BAR_BUTTON_MINIMIZE,
+	MANGO_BAR_BUTTON_MAXIMIZE,
+	MANGO_BAR_BUTTON_COUNT,
+};
+
+typedef struct MangoBarButton {
+	struct wlr_scene_buffer *scene_buffer;
+	struct mango_text_buffer *texture;
+	float color[4];
+	float hover_color[4];
+	float glyph_color[4];
+	int32_t cached_size;
+	float cached_scale;
+	bool cached_hover;
+	bool cached_valid;
+} MangoBarButton;
+
 typedef struct MangoBarDecoration {
 	uint32_t type;
 	bool is_tab;
@@ -133,6 +154,22 @@ typedef struct MangoBarDecoration {
 	float close_cached_scale;
 	bool close_cached_hover;
 	bool close_cached_valid;
+
+	/* Traffic-light buttons (title bars): a left or right aligned strip of
+	 * `MANGO_BAR_BUTTON_COUNT` circular buttons. */
+	bool buttons_enabled;
+	bool buttons_left;
+	int32_t button_size;
+	int32_t button_gap;
+	int32_t button_margin;
+	int32_t hover_button;
+	MangoBarButton buttons[MANGO_BAR_BUTTON_COUNT];
+
+	/* Explicit corner radii, used by title bars to copy the window border's
+	 * corners so the bar and the surface share one rounded outline. */
+	bool corners_override;
+	struct fx_corner_radii corners;
+
 } MangoBarDecoration;
 
 void mango_text_global_finish(void);
@@ -176,6 +213,22 @@ void mango_bar_decoration_set_close_hover(MangoBarDecoration *node, bool hover);
 bool mango_bar_decoration_close_contains(MangoBarDecoration *node, double lx,
 										 double ly);
 
+/* Traffic-light buttons, left aligned for title bars. */
+void mango_bar_decoration_set_buttons(MangoBarDecoration *node, bool enabled,
+									  bool left, int32_t size, int32_t gap,
+									  int32_t margin);
+void mango_bar_decoration_set_button_color(MangoBarDecoration *node,
+										   int32_t button,
+										   const float circle[4]);
+void mango_bar_decoration_set_button_hover(MangoBarDecoration *node,
+										   int32_t button, bool hover);
+int32_t mango_bar_decoration_button_at(MangoBarDecoration *node, double lx,
+									   double ly);
+
+/* Explicit corner radii, used by a title bar to copy the window border's
+ * corners so the bar and the surface share one rounded outline. */
+void mango_bar_decoration_set_corners(MangoBarDecoration *node,
+									  struct fx_corner_radii corners);
 void mango_jump_label_node_apply_config(MangoJumpLabel *node,
 										const DecorateDrawData *data);
 void mango_bar_decoration_apply_config(MangoBarDecoration *node,
