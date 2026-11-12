@@ -1275,20 +1275,43 @@ void pointer_process_motion(uint32_t time, struct wlr_input_device *device,
 	/* While a grab owns the pointer the bar under it is not really hovered. */
 	if (server.cursor_mode != CurMove && server.cursor_mode != CurResize) {
 		MangoBarDecoration *hover = NULL;
+		int32_t hover_button = -1;
 		if (bar) {
-			double lx = server.cursor->x - bar->scene->node.x;
-			double ly = server.cursor->y - bar->scene->node.y;
-			if (mango_bar_decoration_close_contains(bar, lx, ly))
+			int bx = 0, by = 0;
+			wlr_scene_node_coords(&bar->scene->node, &bx, &by);
+			double lx = server.cursor->x - bx;
+			double ly = server.cursor->y - by;
+			if (bar->type == TitleBar) {
+				hover_button = mango_bar_decoration_button_at(bar, lx, ly);
+				if (hover_button >= 0)
+					hover = bar;
+			} else if (mango_bar_decoration_close_contains(bar, lx, ly)) {
 				hover = bar;
+			}
 		}
-		if (server.group_bar_hover != hover) {
+
+		/* Group/tab bars keep their single close button in
+		 * server.group_bar_hover, title bars their per-button hover. */
+		MangoBarDecoration *group_hover =
+			hover && hover->type != TitleBar ? hover : NULL;
+		if (server.group_bar_hover != group_hover) {
 			if (server.group_bar_hover)
 				mango_bar_decoration_set_close_hover(server.group_bar_hover,
 													 false);
-			if (hover)
-				mango_bar_decoration_set_close_hover(hover, true);
-			server.group_bar_hover = hover;
+			if (group_hover)
+				mango_bar_decoration_set_close_hover(group_hover, true);
+			server.group_bar_hover = group_hover;
 		}
+
+		if (server.title_bar_hover != hover) {
+			if (server.title_bar_hover)
+				mango_bar_decoration_set_button_hover(server.title_bar_hover, 0,
+													  false);
+			server.title_bar_hover = hover;
+		}
+		if (bar && bar->type == TitleBar)
+			mango_bar_decoration_set_button_hover(bar, hover_button,
+												  hover_button >= 0);
 	}
 
 	if (server.cursor_mode == CurPressed && !server.seat->drag &&
@@ -1305,6 +1328,23 @@ void pointer_process_motion(uint32_t time, struct wlr_input_device *device,
 	wlr_scene_node_set_position(&server.drag_icon->node,
 								(int32_t)round(server.cursor->x),
 								(int32_t)round(server.cursor->y));
+
+	/* Same 5px threshold for the title bar, which belongs to one window and so
+	 * never leaves a group. */
+	if (server.title_bar_drag_pending) {
+		double ddx = server.cursor->x - server.title_bar_drag_x;
+		double ddy = server.cursor->y - server.title_bar_drag_y;
+		if (ddx * ddx + ddy * ddy >= 25.0) {
+			Client *dc = server.title_bar_drag_client;
+			server.title_bar_drag_pending = false;
+			server.title_bar_drag_client = NULL;
+			if (dc && !dc->iskilling) {
+				client_focus(dc, 1);
+				pointer_begin_move_resize(dc, CurMove, server.cursor->x,
+										  server.cursor->y, 0);
+			}
+		}
+	}
 
 	if (server.group_bar_drag_pending) {
 		double ddx = server.cursor->x - server.group_bar_drag_x;
@@ -1798,10 +1838,29 @@ bool pointer_process_button_press(struct wlr_pointer_button_event *event) {
 		if (bar && !bar->is_tab && bar->node_data &&
 			event->button == BTN_LEFT) {
 			Client *tc = bar->node_data;
-			double lx = server.cursor->x - bar->scene->node.x;
-			double ly = server.cursor->y - bar->scene->node.y;
+			int bx = 0, by = 0;
+			wlr_scene_node_coords(&bar->scene->node, &bx, &by);
+			double lx = server.cursor->x - bx;
+			double ly = server.cursor->y - by;
 
-			if (mango_bar_decoration_close_contains(bar, lx, ly)) {
+			/* Title bars own three buttons; the group bar keeps its single
+			 * close button. */
+			if (bar->type == TitleBar) {
+				int32_t button = mango_bar_decoration_button_at(bar, lx, ly);
+				switch (button) {
+				case MANGO_BAR_BUTTON_CLOSE:
+					kill_client(&(Arg){.tc = tc});
+					return true;
+				case MANGO_BAR_BUTTON_MINIMIZE:
+					minimize_window(&(Arg){.tc = tc});
+					return true;
+				case MANGO_BAR_BUTTON_MAXIMIZE:
+					toggle_maximize_screen(&(Arg){.tc = tc});
+					return true;
+				default:
+					break;
+				}
+			} else if (mango_bar_decoration_close_contains(bar, lx, ly)) {
 				pending_kill_client(tc);
 				return true;
 			}
@@ -1810,10 +1869,17 @@ bool pointer_process_button_press(struct wlr_pointer_button_event *event) {
 
 			if (!tc->isfullscreen && !tc->ismaximizescreen &&
 				!client_is_unmanaged(tc)) {
-				server.group_bar_drag_pending = true;
-				server.group_bar_drag_client = tc;
-				server.group_bar_drag_x = server.cursor->x;
-				server.group_bar_drag_y = server.cursor->y;
+				if (bar->type == TitleBar) {
+					server.title_bar_drag_pending = true;
+					server.title_bar_drag_client = tc;
+					server.title_bar_drag_x = server.cursor->x;
+					server.title_bar_drag_y = server.cursor->y;
+				} else {
+					server.group_bar_drag_pending = true;
+					server.group_bar_drag_client = tc;
+					server.group_bar_drag_x = server.cursor->x;
+					server.group_bar_drag_y = server.cursor->y;
+				}
 			}
 			return true;
 		}
@@ -1860,6 +1926,8 @@ bool pointer_process_button_press(struct wlr_pointer_button_event *event) {
 		}
 		break;
 	case WL_POINTER_BUTTON_STATE_RELEASED:
+		server.title_bar_drag_pending = false;
+		server.title_bar_drag_client = NULL;
 		server.group_bar_drag_pending = false;
 		server.drop_to_group = false;
 		server.group_bar_drag_client = NULL;
