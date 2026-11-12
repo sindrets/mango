@@ -8,6 +8,10 @@
 bool client_is_ignore_output_clip(Client *c);
 struct ivec2 compute_edge_offsets(Client *c);
 
+/* Height the title bar occupies in the frame right now (0 when hidden), and
+ * the same clamped to a frame height being drawn (animations shrink frames). */
+void client_title_bar_draw_height(Client *c, int32_t frame_height,
+								  int32_t *bar_height);
 void client_actual_size(Client *client, int32_t *width, int32_t *height);
 void set_rect_size(struct wlr_scene_rect *rect, int32_t width, int32_t height);
 
@@ -31,6 +35,7 @@ void scene_buffer_apply_effect(struct wlr_scene_buffer *buffer, int32_t sx,
 void buffer_set_effect(Client *c, BufferData data);
 
 void client_draw_shadow(Client *c, struct ivec2 offsets);
+void client_draw_title_bar(Client *c, struct ivec2 offsets);
 void client_draw_group_bar(Client *c, struct ivec2 offsets);
 void global_draw_group_bar(Client *c, int32_t x, int32_t y, int32_t width,
 						   int32_t height);

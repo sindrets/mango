@@ -153,6 +153,12 @@ struct MangoServer {
 	MangoBarDecoration *group_bar_hover;
 	bool drop_to_group;
 
+	/* Title bar drag / hover state (kept apart from the group bar state) */
+	bool title_bar_drag_pending;
+	Client *title_bar_drag_client;
+	double title_bar_drag_x, title_bar_drag_y;
+	MangoBarDecoration *title_bar_hover;
+
 	/* Outputs / monitors */
 	struct wlr_output_layout *output_layout;
 	struct wlr_box scene_geometry;

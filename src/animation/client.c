@@ -76,9 +76,27 @@ struct ivec2 compute_edge_offsets(Client *c) {
 	return offsets;
 }
 
+void client_title_bar_draw_height(Client *c, int32_t frame_height,
+								  int32_t *bar_height) {
+	*bar_height = client_title_bar_height(c);
+	if (*bar_height <= 0)
+		return;
+
+	/* Animations can shrink the frame under the bar; keep the drawing inside
+	 * the frame and leave a pixel of surface. */
+	int32_t room = frame_height - 2 * (int32_t)c->bw - 1;
+	if (*bar_height > room)
+		*bar_height = room;
+	if (*bar_height < 0)
+		*bar_height = 0;
+}
+
 void client_actual_size(Client *c, int32_t *width, int32_t *height) {
+	int32_t bar_height;
+	client_title_bar_draw_height(c, c->animation.current.height, &bar_height);
+
 	*width = c->animation.current.width - 2 * (int32_t)c->bw;
-	*height = c->animation.current.height - 2 * (int32_t)c->bw;
+	*height = c->animation.current.height - 2 * (int32_t)c->bw - bar_height;
 }
 void set_rect_size(struct wlr_scene_rect *rect, int32_t width, int32_t height) {
 	wlr_scene_rect_set_size(rect, GEZERO(width), GEZERO(height));
@@ -371,8 +389,11 @@ void client_draw_shadow(Client *c, struct ivec2 offsets) {
 	int32_t bw = (int32_t)c->bw;
 	int32_t bwoffset = bw != 0 && hit_no_border ? bw : 0;
 
-	int32_t width, height;
-	client_actual_size(c, &width, &height);
+	/* The shadow wraps the whole frame, title bar included, so it uses the
+	 * frame content size rather than client_actual_size() (which subtracts
+	 * the bar for the surface). */
+	int32_t width = c->animation.current.width - 2 * bw;
+	int32_t height = c->animation.current.height - 2 * bw;
 
 	int32_t delta = config.shadows_size + bw - bwoffset;
 
@@ -436,6 +457,77 @@ void client_draw_shadow(Client *c, struct ivec2 offsets) {
 	clipped_region.area.y = clipped_region.area.y - top;
 
 	wlr_scene_shadow_set_clipped_region(c->shadow, clipped_region);
+}
+/*
+ * Title bar geometry.
+ *
+ * The bar is drawn inside the top of the frame. Its outer top corners get the
+ * border's inner radius so the bar's background melts into the window body;
+ * the bottom corners stay square and are covered by the surface. `offsets`
+ * carries the edge offsets of a partially hidden (scrolling / animating) window
+ * and only shifts the bar along with the visible part of the frame.
+ */
+void client_draw_title_bar(Client *c, struct ivec2 offsets) {
+	if (!c || !c->title_bar)
+		return;
+
+	bool wants = client_wants_title_bar(c);
+	if (!wants) {
+		if (c->title_bar->scene->node.enabled)
+			wlr_scene_node_set_enabled(&c->title_bar->scene->node, false);
+		return;
+	}
+
+	struct wlr_box cur = c->animation.current;
+	int32_t bw = (int32_t)c->bw;
+
+	int32_t bar_height;
+	client_title_bar_draw_height(c, cur.height, &bar_height);
+	if (bar_height <= 0) {
+		if (c->title_bar->scene->node.enabled)
+			wlr_scene_node_set_enabled(&c->title_bar->scene->node, false);
+		return;
+	}
+
+	/* Shrink with the edge offsets exactly like the border rect does, so a
+	 * scrolling window does not leak a bar over its neighbours. */
+	int32_t left = offsets.x, right = offsets.width, top = offsets.y;
+	int32_t x = bw - left;
+	int32_t y = bw - top;
+	int32_t width = cur.width - 2 * bw - (left > 0 ? left - bw : 0) +
+					(right > 0 ? right : 0);
+	if (width > cur.width - 2 * bw)
+		width = cur.width - 2 * bw;
+	if (width <= 0) {
+		if (c->title_bar->scene->node.enabled)
+			wlr_scene_node_set_enabled(&c->title_bar->scene->node, false);
+		return;
+	}
+
+	int32_t height = bar_height;
+	if (top > 0)
+		height = MANGO_MAX(bar_height - top + bw, 0);
+
+	if (x < 0)
+		x = 0;
+	if (y < 0)
+		y = 0;
+
+	mango_bar_decoration_set_size(c->title_bar, width, height);
+	wlr_scene_node_set_position(&c->title_bar->scene->node, x, y);
+
+	/* Only the top corners follow the window radius: the bottom of the bar
+	 * sits against the surface. */
+	struct fx_corner_radii corners = set_client_corner_location(c);
+	corners = client_inner_corner_location(c, corners);
+	corners.bottom_left = 0;
+	corners.bottom_right = 0;
+	mango_bar_decoration_set_corners(c->title_bar, corners);
+
+	client_update_title_bar_focus(c);
+
+	if (!c->title_bar->scene->node.enabled)
+		wlr_scene_node_set_enabled(&c->title_bar->scene->node, true);
 }
 
 void client_draw_group_bar(Client *c, struct ivec2 offsets) {
@@ -532,6 +624,8 @@ void client_draw_shield(Client *c, struct ivec2 clip_box) {
 		return;
 	}
 
+	/* The shield covers the whole frame content, title bar included: while
+	 * capture protection is active the title must not leak either. */
 	if (client_is_ignore_output_clip(c)) {
 		shield_x = c->bw;
 		shield_y = c->bw;
@@ -577,6 +671,8 @@ void client_draw_dim(Client *c, struct ivec2 clip_box) {
 	int32_t dim_width = 0;
 	int32_t dim_height = 0;
 
+	/* The dim node is a child of the surface tree, which already sits below
+	 * the title bar, so it stays in surface coordinates. */
 	if (client_is_ignore_output_clip(c)) {
 		dim_width = c->animation.current.width - 2 * (int32_t)c->bw;
 		dim_height = c->animation.current.height - 2 * (int32_t)c->bw;
@@ -621,9 +717,10 @@ void client_draw_blur(Client *c, struct ivec2 clip_box) {
 	int32_t blur_y = 0;
 	int32_t blur_width = 0;
 	int32_t blur_height = 0;
-
 	if (config.blur && !c->no_blur) {
 
+		/* Blur the whole frame content, title bar included: the bar is drawn
+		 * above it, so a translucent bar background picks up the blur. */
 		if (client_is_ignore_output_clip(c)) {
 			blur_x = c->bw;
 			blur_y = c->bw;
@@ -775,10 +872,10 @@ void client_draw_border(Client *c, struct ivec2 offsets) {
 		inner_surface_height =
 			MANGO_MIN(cur.height, inner_surface_height + bottom);
 
-	// The hole is inset by the border width, so it needs the radius the border's
-	// inner edge actually has. With the outer radius its arc would land on the
-	// border's own outer arc, leaving the ring zero-width along the curve and
-	// showing the background through it.
+	// The hole is inset by the border width, so it needs the radius the
+	// border's inner edge actually has. With the outer radius its arc would
+	// land on the border's own outer arc, leaving the ring zero-width along the
+	// curve and showing the background through it.
 	struct fx_corner_radii inner_corners =
 		client_inner_corner_location(c, current_corner_location);
 
@@ -788,7 +885,15 @@ void client_draw_border(Client *c, struct ivec2 offsets) {
 		.corners = inner_corners,
 	};
 
-	wlr_scene_node_set_position(&c->scene_surface->node, c->bw, c->bw);
+	/* The title bar lives inside the hole, above the surface, so only the
+	 * surface moves down; the hole itself already covers both. */
+	int32_t bar_height = client_title_bar_height(c);
+	if (bar_height > 0) {
+		int32_t room = cur.height - 2 * bw - 1;
+		bar_height = MANGO_MIN(bar_height, MANGO_MAX(room, 0));
+	}
+	wlr_scene_node_set_position(&c->scene_surface->node, c->bw,
+								c->bw + bar_height);
 	wlr_scene_rect_set_size(c->border, rect_width, rect_height);
 	wlr_scene_node_set_position(&c->border->node, rect_x, rect_y);
 	wlr_scene_rect_set_corner_radii(c->border, current_corner_location);
@@ -857,8 +962,9 @@ void client_set_drop_area(Client *c) {
 	}
 
 	int32_t bw = (int32_t)c->bw;
+	int32_t bar_height = client_title_bar_height(c);
 	int32_t client_width = c->geom.width - 2 * bw;
-	int32_t client_height = c->geom.height - 2 * bw;
+	int32_t client_height = c->geom.height - 2 * bw - bar_height;
 
 	if (client_width <= 0 || client_height <= 0) {
 		wlr_scene_node_set_enabled(&c->droparea->node, false);
@@ -869,13 +975,13 @@ void client_set_drop_area(Client *c) {
 		if (!first_draw && c->drop_direction == UNDIR)
 			return;
 		c->drop_direction = UNDIR;
-		wlr_scene_node_set_position(&c->droparea->node, bw, bw);
+		wlr_scene_node_set_position(&c->droparea->node, bw, bw + bar_height);
 		wlr_scene_rect_set_size(c->droparea, client_width, client_height);
 		return;
 	}
 
 	double rel_x = server.cursor->x - c->geom.x - bw;
-	double rel_y = server.cursor->y - c->geom.y - bw;
+	double rel_y = server.cursor->y - c->geom.y - bw - bar_height;
 
 	struct wlr_box drop_box;
 	const Layout *cur_layout = c->mon->pertag->ltidxs[get_client_tag_idx(c)];
@@ -889,13 +995,13 @@ void client_set_drop_area(Client *c) {
 			if (rel_x < client_width * 0.5) {
 				drop_direction = LEFT;
 				drop_box.x = bw;
-				drop_box.y = bw;
+				drop_box.y = bw + bar_height;
 				drop_box.width = (int32_t)(client_width * ratio);
 				drop_box.height = client_height;
 			} else {
 				drop_direction = RIGHT;
 				drop_box.x = bw + (int32_t)(client_width * ratio);
-				drop_box.y = bw;
+				drop_box.y = bw + bar_height;
 				drop_box.width = client_width - (int32_t)(client_width * ratio);
 				drop_box.height = client_height;
 			}
@@ -903,7 +1009,7 @@ void client_set_drop_area(Client *c) {
 			if (rel_y < client_height * 0.5) {
 				drop_direction = UP;
 				drop_box.x = bw;
-				drop_box.y = bw;
+				drop_box.y = bw + bar_height;
 				drop_box.width = client_width;
 				drop_box.height = (int32_t)(client_height * ratio);
 			} else {
@@ -922,19 +1028,19 @@ void client_set_drop_area(Client *c) {
 				if (rel_x < client_width * 0.5) {
 					drop_direction = LEFT;
 					drop_box.x = bw;
-					drop_box.y = bw;
+					drop_box.y = bw + bar_height;
 					drop_box.width = client_width / 2;
 					drop_box.height = client_height;
 				} else {
 					drop_direction = RIGHT;
 					drop_box.x = bw + client_width / 2;
-					drop_box.y = bw;
+					drop_box.y = bw + bar_height;
 					drop_box.width = client_width / 2;
 					drop_box.height = client_height;
 				}
 			} else {
 				drop_box.x = bw;
-				drop_box.y = bw;
+				drop_box.y = bw + bar_height;
 				drop_box.width = client_width;
 				drop_box.height = client_height;
 				drop_direction = UNDIR;
@@ -943,7 +1049,7 @@ void client_set_drop_area(Client *c) {
 			if (rel_y < client_height * 0.5) {
 				drop_direction = UP;
 				drop_box.x = bw;
-				drop_box.y = bw;
+				drop_box.y = bw + bar_height;
 				drop_box.width = client_width;
 				drop_box.height = client_height / 2;
 			} else {
@@ -961,7 +1067,7 @@ void client_set_drop_area(Client *c) {
 				if (rel_y < client_height * 0.5) {
 					drop_direction = UP;
 					drop_box.x = bw;
-					drop_box.y = bw;
+					drop_box.y = bw + bar_height;
 					drop_box.width = client_width;
 					drop_box.height = client_height / 2;
 				} else {
@@ -973,7 +1079,7 @@ void client_set_drop_area(Client *c) {
 				}
 			} else {
 				drop_box.x = bw;
-				drop_box.y = bw;
+				drop_box.y = bw + bar_height;
 				drop_box.width = client_width;
 				drop_box.height = client_height;
 				drop_direction = UNDIR;
@@ -982,13 +1088,13 @@ void client_set_drop_area(Client *c) {
 			if (rel_x < client_width * 0.5) {
 				drop_direction = LEFT;
 				drop_box.x = bw;
-				drop_box.y = bw;
+				drop_box.y = bw + bar_height;
 				drop_box.width = client_width / 2;
 				drop_box.height = client_height;
 			} else {
 				drop_direction = RIGHT;
 				drop_box.x = bw + client_width / 2;
-				drop_box.y = bw;
+				drop_box.y = bw + bar_height;
 				drop_box.width = client_width / 2;
 				drop_box.height = client_height;
 			}
@@ -1003,19 +1109,19 @@ void client_set_drop_area(Client *c) {
 			dist_left <= dist_bottom) {
 			drop_direction = LEFT;
 			drop_box.x = bw;
-			drop_box.y = bw;
+			drop_box.y = bw + bar_height;
 			drop_box.width = client_width / 2;
 			drop_box.height = client_height;
 		} else if (dist_right <= dist_top && dist_right <= dist_bottom) {
 			drop_direction = RIGHT;
 			drop_box.x = bw + client_width / 2;
-			drop_box.y = bw;
+			drop_box.y = bw + bar_height;
 			drop_box.width = client_width / 2;
 			drop_box.height = client_height;
 		} else if (dist_top <= dist_bottom) {
 			drop_direction = UP;
 			drop_box.x = bw;
-			drop_box.y = bw;
+			drop_box.y = bw + bar_height;
 			drop_box.width = client_width;
 			drop_box.height = client_height / 2;
 		} else {
@@ -1059,6 +1165,7 @@ void client_set_clip(Client *c, float factor) {
 		client_draw_shadow(c, offsets);
 		client_draw_group_bar(c, offsets);
 		client_draw_tabbar(c, offsets);
+		client_draw_title_bar(c, offsets);
 		client_draw_blur(c, surface_clip_offset);
 		client_draw_shield(c, surface_clip_offset);
 		client_draw_dim(c, surface_clip_offset);
@@ -1096,6 +1203,7 @@ void client_set_clip(Client *c, float factor) {
 		client_draw_shadow(c, offsets);
 		client_draw_group_bar(c, offsets);
 		client_draw_tabbar(c, offsets);
+		client_draw_title_bar(c, offsets);
 		client_draw_blur(c, surface_clip_offset);
 		client_draw_shield(c, surface_clip_offset);
 		client_draw_dim(c, surface_clip_offset);
@@ -1119,10 +1227,11 @@ void client_set_clip(Client *c, float factor) {
 			wlr_scene_subsurface_tree_set_clip(&c->scene_surface->node,
 											   &clip_box);
 
-		buffer_set_effect(c, (BufferData){1.0f, 1.0f, clip_box.width,
-										  clip_box.height,
-										  client_inner_corner_location(c,
-																 current_corner_location), true});
+		buffer_set_effect(
+			c, (BufferData){
+				   1.0f, 1.0f, clip_box.width, clip_box.height,
+				   client_inner_corner_location(c, current_corner_location),
+				   true});
 		return;
 	}
 
@@ -1149,6 +1258,7 @@ void client_set_clip(Client *c, float factor) {
 	client_draw_shadow(c, offsets);
 	client_draw_group_bar(c, offsets);
 	client_draw_tabbar(c, offsets);
+	client_draw_title_bar(c, offsets);
 	client_draw_shield(c, surface_clip_offset);
 	client_draw_dim(c, surface_clip_offset);
 	client_draw_blur(c, surface_clip_offset);
@@ -1566,8 +1676,12 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 	if (is_scroller_layout(c->mon) &&
 		(!c->isfloating || c == server.grab_client)) {
 		c->geom = geo;
+		/* Keep at least one pixel for the surface below the title bar: the
+		 * size handed to the client below is unsigned. */
 		c->geom.width = MANGO_MAX(1 + 2 * (int32_t)c->bw, c->geom.width);
-		c->geom.height = MANGO_MAX(1 + 2 * (int32_t)c->bw, c->geom.height);
+		c->geom.height =
+			MANGO_MAX(1 + 2 * (int32_t)c->bw + client_title_bar_height(c),
+					  c->geom.height);
 	} else {
 		c->geom = geo;
 		client_set_bounds(c, bbox);
@@ -1631,9 +1745,10 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 	}
 
 	if (!c->mon->isoverview)
-		c->configure_serial =
-			client_set_size(c, c->geom.width - 2 * c->bw,
-							c->geom.height - 2 * c->bw, opts.force_configure);
+		c->configure_serial = client_set_size(c, c->geom.width - 2 * c->bw,
+											  c->geom.height - 2 * c->bw -
+												  client_title_bar_height(c),
+											  opts.force_configure);
 
 	if (c->configure_serial != 0)
 		c->mon->resizing_count_pending++;
@@ -1653,6 +1768,7 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 		client_get_clip(c, &clip);
 		client_draw_group_bar(c, offsets);
 		client_draw_tabbar(c, offsets);
+		client_draw_title_bar(c, offsets);
 		client_draw_shadow(c, offsets);
 
 		struct ivec2 surface_clip_offset = clip_to_hide(c, &clip, offsets);
