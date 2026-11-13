@@ -170,6 +170,13 @@ typedef struct MangoBarDecoration {
 	bool corners_override;
 	struct fx_corner_radii corners;
 
+	/* The part of the bar still on screen, in bar-local coordinates. Empty
+	 * means all of it. A bar that slides past a monitor edge must travel with
+	 * its window instead of shrinking against it, so it keeps its full size and
+	 * paints only this much of itself: the title and the traffic lights stay
+	 * where they are and merely get cut off as they leave. */
+	struct wlr_box visible;
+
 	/* Edges (enum wlr_edges) this bar's rects snap outwards to whole device
 	 * pixels. A bar that sits directly on the client surface sets its bottom
 	 * edge: at a fractional output scale the bar and the surface would
@@ -242,6 +249,12 @@ void mango_bar_decoration_set_corners(MangoBarDecoration *node,
  * edge so the two do not both fade the device pixel they share. */
 void mango_bar_decoration_set_snap_edges(MangoBarDecoration *node,
 										 uint32_t edges);
+
+/* Restrict painting to `visible`, in bar-local coordinates. The bar keeps its
+ * logical size, so its contents do not re-lay-out as it moves; only the part
+ * named here is drawn. A zero `width` or `height` means the whole bar. */
+void mango_bar_decoration_set_visible(MangoBarDecoration *node, int32_t x,
+									  int32_t y, int32_t width, int32_t height);
 void mango_jump_label_node_apply_config(MangoJumpLabel *node,
 										const DecorateDrawData *data);
 void mango_bar_decoration_apply_config(MangoBarDecoration *node,

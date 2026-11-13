@@ -175,8 +175,9 @@ static struct fx_corner_radii inner_corners_of(struct fx_corner_radii outer,
 static void rect_apply_border(struct wlr_scene_rect *rect, const float color[4],
 							  struct fx_corner_radii outer,
 							  struct fx_corner_radii inner, int32_t border,
-							  int32_t width, int32_t height) {
-	rect_apply(rect, color, outer, 0, 0, width, height);
+							  int32_t x, int32_t y, int32_t width,
+							  int32_t height) {
+	rect_apply(rect, color, outer, x, y, width, height);
 
 #if TEXT_NODE_CORNER_RADIUS
 	int32_t inner_w = width - 2 * border;
@@ -582,8 +583,8 @@ static void jump_label_apply_geometry(MangoJumpLabel *node) {
 	struct fx_corner_radii outer = corner_radii_all(node->corner_radius);
 	struct fx_corner_radii inner = inner_corners_of(outer, border);
 
-	rect_apply_border(node->border, node->border_color, outer, inner, border,
-					  width, height);
+	rect_apply_border(node->border, node->border_color, outer, inner, border, 0,
+					  0, width, height);
 	rect_apply(node->bg, node->focused ? node->focus_bg_color : node->bg_color,
 			   inner, border, border, width - 2 * border, height - 2 * border);
 
@@ -840,6 +841,10 @@ static int32_t bar_buttons_strip_width(const MangoBarDecoration *node) {
 	return strip;
 }
 
+static void bar_clip_buffer(MangoBarDecoration *node,
+							struct wlr_scene_buffer *buffer);
+static void bar_decoration_apply_geometry(MangoBarDecoration *node);
+
 /* Square box a traffic-light button occupies. */
 static bool bar_button_box(const MangoBarDecoration *node, int32_t index,
 						   int32_t *out_x, int32_t *out_y, int32_t *out_size) {
@@ -969,6 +974,7 @@ static void bar_buttons_sync(MangoBarDecoration *node) {
 
 		wlr_scene_buffer_set_dest_size(button->scene_buffer, size, size);
 		wlr_scene_node_set_position(&button->scene_buffer->node, x, y);
+		bar_clip_buffer(node, button->scene_buffer);
 		wlr_scene_node_set_enabled(&button->scene_buffer->node, true);
 	}
 }
@@ -1026,6 +1032,61 @@ void mango_bar_decoration_set_snap_edges(MangoBarDecoration *node,
 	node->snap_edges = edges;
 }
 
+void mango_bar_decoration_set_visible(MangoBarDecoration *node, int32_t x,
+									  int32_t y, int32_t width,
+									  int32_t height) {
+	if (!node)
+		return;
+
+	if (width < 0)
+		width = 0;
+	if (height < 0)
+		height = 0;
+
+	struct wlr_box visible = {x, y, width, height};
+	if (wlr_box_equal(&node->visible, &visible))
+		return;
+	node->visible = visible;
+
+	/* Called from the per-frame draw path, so this only has to redo the cheap
+	 * geometry pass - the text surface itself does not change. */
+	bar_decoration_apply_geometry(node);
+}
+
+/* Keep only the part of `buffer` the bar still has on screen. The bar's
+ * contents are laid out against its full width so that they travel with the
+ * window, which means a buffer can end up partly or wholly off the monitor;
+ * this is what stops it painting there. A buffer keeps what is inside its clip
+ * rather than cutting a hole, which is what makes it usable here. */
+static void bar_clip_buffer(MangoBarDecoration *node,
+							struct wlr_scene_buffer *buffer) {
+#if TEXT_NODE_CORNER_RADIUS
+	struct wlr_box *visible = &node->visible;
+	struct clipped_region clip = clipped_region_get_default();
+	if (visible->width > 0 && visible->height > 0) {
+		/* A scene buffer's clip is in the buffer's own space: the scene adds
+		 * the node's position to get the absolute box back. */
+		struct wlr_box box = {
+			.x = visible->x - buffer->node.x,
+			.y = visible->y - buffer->node.y,
+			.width = visible->width,
+			.height = visible->height,
+		};
+		/* Leave an untouched buffer alone: a clip sends it down the shader
+		 * path, and most frames have nothing to cut. This is the common case
+		 * for a bar that is not leaving a monitor, so it is worth the test. */
+		struct wlr_box whole = {0, 0, buffer->dst_width, buffer->dst_height};
+		if (!wlr_box_contains_box(&box, &whole)) {
+			clip.area = box;
+			/* Hard: the bar's own rects already stop at this edge, so there
+			 * is no shape underneath for a fade to blend into. */
+			clip.soft = false;
+		}
+	}
+	wlr_scene_buffer_set_clipped_region(buffer, clip);
+#endif
+}
+
 static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 	int32_t border = node->border_width > 0 ? node->border_width : 0;
 	int32_t width = node->target_width > 0 ? node->target_width : 0;
@@ -1048,13 +1109,50 @@ static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 		return;
 	}
 
+	/* `width`/`height` above are the bar's full logical size, which is what the
+	 * title and the buttons are laid out against: that keeps them travelling
+	 * with the window instead of re-flowing as it moves. `visible` is how much
+	 * of that box still has a monitor under it, so only that much gets painted.
+	 * Keeping the two apart is the whole point - sizing the contents to the
+	 * part on screen is what made the bar shrink instead of slide. */
+	int32_t box_x = 0, box_y = 0, box_w = width, box_h = height;
+	if (node->visible.width > 0 && node->visible.height > 0) {
+		box_x = node->visible.x;
+		box_y = node->visible.y;
+		box_w = node->visible.width;
+		box_h = node->visible.height;
+	}
+	inner_w = box_w - 2 * border;
+	inner_h = box_h - 2 * border;
+	if (inner_w < 0)
+		inner_w = 0;
+	if (inner_h < 0)
+		inner_h = 0;
+
 	struct fx_corner_radii outer = bar_outer_corners(node);
+	/* A side that has slid off the monitor has no corner left to round. */
+	if (box_x > 0) {
+		outer.top_left = 0;
+		outer.bottom_left = 0;
+	}
+	if (box_y > 0) {
+		outer.top_left = 0;
+		outer.top_right = 0;
+	}
+	if (box_x + box_w < width) {
+		outer.top_right = 0;
+		outer.bottom_right = 0;
+	}
+	if (box_y + box_h < height) {
+		outer.bottom_left = 0;
+		outer.bottom_right = 0;
+	}
 	struct fx_corner_radii inner = inner_corners_of(outer, border);
 
 	rect_apply_border(node->border, node->border_color, outer, inner, border,
-					  width, height);
+					  box_x, box_y, box_w, box_h);
 	rect_apply(node->bg, node->focused ? node->focus_bg_color : node->bg_color,
-			   inner, border, border, inner_w, inner_h);
+			   inner, box_x + border, box_y + border, inner_w, inner_h);
 
 #if TEXT_NODE_CORNER_RADIUS
 	/* Only the outermost rect may snap: an inset background snapping its own
@@ -1085,6 +1183,7 @@ static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 
 	wlr_scene_node_set_position(&node->scene_buffer->node, text_x,
 								border + node->padding_y + offset_y);
+	bar_clip_buffer(node, node->scene_buffer);
 
 	bar_buttons_sync(node);
 }
@@ -1206,6 +1305,7 @@ static void close_button_sync(MangoBarDecoration *node) {
 
 	wlr_scene_buffer_set_dest_size(node->close_buffer, size, size);
 	wlr_scene_node_set_position(&node->close_buffer->node, x, y);
+	bar_clip_buffer(node, node->close_buffer);
 	wlr_scene_node_place_above(&node->close_buffer->node,
 							   &node->scene_buffer->node);
 	wlr_scene_node_set_enabled(&node->close_buffer->node, true);
