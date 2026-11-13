@@ -1023,6 +1023,19 @@ void client_draw_border(Client *c, struct ivec2 offsets) {
 	wlr_scene_node_set_position(&c->border->node, rect_x, rect_y);
 	wlr_scene_rect_set_corner_radii(c->border, current_corner_location);
 	wlr_scene_rect_set_clipped_region(c->border, clipped_region);
+
+	/* The ring owns the outermost pixels of the frame, so it has to be the
+	 * topmost node of the window: anything drawn over it tints its pixels where
+	 * the two overlap. The title bar is exactly such a node - its rounded top
+	 * corners are antialiased and slide a pixel into the ring's band - which
+	 * showed up as the vertical border turning olive along the bar. Done here
+	 * rather than once at creation so the ring stays on top for as long as both
+	 * are drawn, and so it costs a comparison once they are already in order
+	 * (wlr_scene_node_raise_to_top() returns early when it is the top
+	 * child).
+	 */
+	if (c->title_bar && c->title_bar->scene->node.enabled)
+		wlr_scene_node_raise_to_top(&c->border->node);
 }
 struct ivec2 clip_to_hide(Client *c, struct wlr_box *clip_box,
 						  struct ivec2 offsets) {
