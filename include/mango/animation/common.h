@@ -59,6 +59,19 @@ typedef struct {
 	int32_t width;
 	int32_t height;
 	struct fx_corner_radii corner_location;
+	/* The blur covers the whole frame content, title bar included, so it keeps
+	 * the rounded top corners the surface itself gives up when a bar is drawn.
+	 */
+	struct fx_corner_radii blur_corner_location;
+	/* The clip that keeps the surface inside the frame's hole, in frame
+	 * coordinates. A surface shifted down by a title bar cannot follow the
+	 * frame's curve with a corner radius of its own, because the radius is
+	 * measured from the surface's top edge and its arc would land that much
+	 * lower than the frame's. Clipping it to the hole's exact shape keeps the
+	 * two curves on top of each other; scene_buffer_apply_effect() subtracts
+	 * each buffer's position to get the buffer-local region. Empty when there
+	 * is nothing to clip. */
+	struct clipped_region clip;
 	bool should_scale;
 } BufferData;
 

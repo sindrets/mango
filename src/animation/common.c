@@ -236,6 +236,10 @@ bool scene_node_snapshot(struct wlr_scene_node *node, int32_t lx, int32_t ly,
 		wlr_scene_buffer_set_opacity(snapshot_buffer, scene_buffer->opacity);
 		wlr_scene_buffer_set_corner_radii(snapshot_buffer,
 										  scene_buffer->corners);
+		/* A clipped surface must stay clipped while it is animated, otherwise
+		 * the snapshot's corners pop into the frame's arc. */
+		wlr_scene_buffer_set_clipped_region(snapshot_buffer,
+											scene_buffer->clipped_region);
 
 		if (scene_surface != NULL && scene_surface->surface->buffer != NULL) {
 			wlr_scene_buffer_set_buffer(snapshot_buffer,

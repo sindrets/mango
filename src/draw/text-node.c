@@ -76,23 +76,49 @@ static const struct wlr_buffer_impl text_buffer_impl = {
 	.end_data_ptr_access = text_buffer_end_data_ptr_access,
 };
 
-/* Clamps every corner radius of `corners` to the largest arc that fits in a
- * width x height box. A negative radius means "as round as possible". */
+/* Clamps `corners` so that no two corners sharing an edge overlap: a radius
+ * longer than the edge it runs along would put its curve past the neighbouring
+ * corner and fold the shape over itself.
+ *
+ * Only a pair where both corners have a radius can collide. A corner with
+ * radius 0 has no curve, so the other one may run the full length of the edge.
+ * That matters for the title bar: its top corners inherit the window radius,
+ * which is routinely larger than the bar is tall, and shortening them to half
+ * the bar height would give the bar a curve of its own instead of the frame's.
+ */
 static struct fx_corner_radii clamp_corners(struct fx_corner_radii corners,
 											int32_t width, int32_t height) {
-	int32_t limit = (width < height ? width : height) / 2;
-	if (limit < 0) {
-		limit = 0;
+	struct {
+		uint16_t a, b;
+		int32_t edge;
+	} pairs[] = {
+		{corners.top_left, corners.top_right, width},
+		{corners.bottom_left, corners.bottom_right, width},
+		{corners.top_left, corners.bottom_left, height},
+		{corners.top_right, corners.bottom_right, height},
+	};
+
+	float scale = 1.0f;
+	for (size_t i = 0; i < sizeof(pairs) / sizeof(pairs[0]); i++) {
+		if (pairs[i].a == 0 || pairs[i].b == 0)
+			continue;
+
+		int32_t sum = (int32_t)pairs[i].a + (int32_t)pairs[i].b;
+		if (sum > pairs[i].edge) {
+			float fit = (float)pairs[i].edge / (float)sum;
+			if (fit < scale)
+				scale = fit;
+		}
 	}
+
+	if (scale >= 1.0f)
+		return corners;
 
 	struct fx_corner_radii clamped = corners;
 	uint16_t *values[4] = {&clamped.top_left, &clamped.top_right,
 						   &clamped.bottom_right, &clamped.bottom_left};
-	for (size_t i = 0; i < 4; i++) {
-		if (*values[i] > limit) {
-			*values[i] = limit;
-		}
-	}
+	for (size_t i = 0; i < 4; i++)
+		*values[i] = (uint16_t)(*values[i] * scale);
 	return clamped;
 }
 
@@ -133,10 +159,16 @@ static int32_t inner_corner_radius(int32_t outer_radius, int32_t border) {
 
 static struct fx_corner_radii inner_corners_of(struct fx_corner_radii outer,
 											   int32_t border) {
-	return corner_radii_new(inner_corner_radius(outer.top_left, border),
-							inner_corner_radius(outer.top_right, border),
-							inner_corner_radius(outer.bottom_right, border),
-							inner_corner_radius(outer.bottom_left, border));
+	struct fx_corner_radii inner =
+		corner_radii_new(inner_corner_radius(outer.top_left, border),
+						 inner_corner_radius(outer.top_right, border),
+						 inner_corner_radius(outer.bottom_right, border),
+						 inner_corner_radius(outer.bottom_left, border));
+	/* The inner edge is the same curve, just smaller, so it keeps the exponent.
+	 * Dropping it would draw the background as a circle inside a superellipse
+	 * border and let the border color bleed through the corner. */
+	inner.exponent = outer.exponent;
+	return inner;
 }
 
 static void rect_apply_border(struct wlr_scene_rect *rect, const float color[4],

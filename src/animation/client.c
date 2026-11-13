@@ -150,6 +150,25 @@ struct fx_corner_radii client_inner_corner_location(Client *c,
 	return inner;
 }
 
+// Corners for the client surface itself, which is what actually draws the
+// window body. Without a title bar the surface fills the border's hole and the
+// inner radii above describe its outline exactly. With one, the surface hangs
+// below the bar, so its box origin has moved down by the bar height; its own
+// top arc would then sit that much lower than the frame's and leave a wedge of
+// background between the bar and the body. The frame's top arc belongs to the
+// bar in that case, so the surface's top corners go square and follow it from
+// just under the bar down. The straight edges still line up, since the inner
+// arc is already within a pixel of the box edge that far down the curve.
+struct fx_corner_radii client_surface_corner_location(Client *c,
+										  struct fx_corner_radii outer) {
+	struct fx_corner_radii surface = client_inner_corner_location(c, outer);
+	if (client_title_bar_height(c) > 0) {
+		surface.top_left = 0;
+		surface.top_right = 0;
+	}
+	return surface;
+}
+
 bool is_horizontal_stack_layout(Monitor *m) {
 	uint32_t tag = get_mon_curtag(m);
 	return m->pertag->ltidxs[tag]->id == TILE ||
@@ -339,6 +358,18 @@ void scene_buffer_apply_effect(struct wlr_scene_buffer *buffer, int32_t sx,
 		return;
 
 	wlr_scene_buffer_set_corner_radii(buffer, buffer_data->corner_location);
+	/* A surface pushed down by a title bar cannot follow the frame's curve with
+	 * a corner radius of its own, so it is clipped to the border's hole
+	 * instead. `soft` fades it by the hole's own coverage, which is what the
+	 * border's ring is cut with, so the seam blends as c*surface +
+	 * (1-c)*border with nothing behind it.
+	 *
+	 * The region is in the surface tree's space and a buffer's clip is read in
+	 * its own, so shift it by the buffer's offset inside the tree. */
+	struct clipped_region clip = buffer_data->clip;
+	clip.area.x -= sx;
+	clip.area.y -= sy;
+	wlr_scene_buffer_set_clipped_region(buffer, clip);
 }
 
 void buffer_set_effect(Client *c, BufferData data) {
@@ -352,12 +383,16 @@ void buffer_set_effect(Client *c, BufferData data) {
 	if (c == server.grab_client)
 		data.should_scale = false;
 
-	if (client_no_radius_active(c))
+	if (client_no_radius_active(c)) {
 		data.corner_location = corner_radii_none();
+		data.blur_corner_location = corner_radii_none();
+		/* Nothing to stay inside of either: without a radius the frame has
+		 * square corners and the surface already fills them. */
+		data.clip = (struct clipped_region){0};
+	}
 
 	if (config.blur && !c->no_blur)
-		wlr_scene_blur_set_corner_radii(c->blur, data.corner_location);
-
+		wlr_scene_blur_set_corner_radii(c->blur, data.blur_corner_location);
 	/* Overview cards get rounded corners directly. */
 	if (c->ov_card_tree) {
 		overview_card_set_corner_radii(c, data.corner_location);
@@ -516,8 +551,11 @@ void client_draw_title_bar(Client *c, struct ivec2 offsets) {
 	mango_bar_decoration_set_size(c->title_bar, width, height);
 	wlr_scene_node_set_position(&c->title_bar->scene->node, x, y);
 
-	/* Only the top corners follow the window radius: the bottom of the bar
-	 * sits against the surface. */
+	/* The bar fills the hole the border cuts for the frame content, so its top
+	 * corners are the hole's corners: same arc centre, radius smaller by the
+	 * border width. That lines the bar's curve up with the frame's outer curve
+	 * and keeps the ring the same width around both. The bottom of the bar sits
+	 * against the surface, so those corners stay square. */
 	struct fx_corner_radii corners = set_client_corner_location(c);
 	corners = client_inner_corner_location(c, corners);
 	corners.bottom_left = 0;
@@ -672,17 +710,21 @@ void client_draw_dim(Client *c, struct ivec2 clip_box) {
 	int32_t dim_height = 0;
 
 	/* The dim node is a child of the surface tree, which already sits below
-	 * the title bar, so it stays in surface coordinates. */
+	 * the title bar, so it stays in surface coordinates and covers the surface
+	 * only. Including the bar height here would run the overlay past the bottom
+	 * of the frame. */
+	int32_t bar_height = client_title_bar_height(c);
 	if (client_is_ignore_output_clip(c)) {
 		dim_width = c->animation.current.width - 2 * (int32_t)c->bw;
-		dim_height = c->animation.current.height - 2 * (int32_t)c->bw;
+		dim_height =
+			c->animation.current.height - 2 * (int32_t)c->bw - bar_height;
 	} else {
 		dim_x = clip_box.x;
 		dim_y = clip_box.y;
 		dim_width = c->animation.current.width - 2 * (int32_t)c->bw -
 					clip_box.width - clip_box.x;
 		dim_height = c->animation.current.height - 2 * (int32_t)c->bw -
-					 clip_box.height - clip_box.y;
+					 clip_box.height - clip_box.y - bar_height;
 	}
 
 	if (dim_width <= 0 || dim_height <= 0) {
@@ -690,18 +732,13 @@ void client_draw_dim(Client *c, struct ivec2 clip_box) {
 		return;
 	}
 
-	// The dim overlay covers the surface, which sits inset by the border width
-	// and therefore has the inner radius, not the border's outer one.
-	int32_t radius = 0;
-	if (!client_no_radius_active(c)) {
-		radius = config.border_radius - (int32_t)c->bw;
-	}
-	if (radius < 0) {
-		radius = 0;
-	}
-
-	mango_dim_node_set_radius(c->dim_node, radius,
-							  config.border_radius_exponent);
+	/* The overlay sits on top of the surface and must end exactly where the
+	 * surface does, so it takes the surface's own corners rather than the
+	 * configured radius: with a title bar the surface's top corners are square,
+	 * and rounding the overlay there would leave their undimmed tip showing. */
+	mango_dim_node_set_corners(
+		c->dim_node,
+		client_surface_corner_location(c, set_client_corner_location(c)));
 	mango_dim_node_set_enabled(c->dim_node, true);
 	mango_dim_node_set_box(c->dim_node, dim_x, dim_y, dim_width, dim_height);
 }
@@ -824,6 +861,78 @@ void client_draw_split_border(Client *c, bool hit_no_border,
 	wlr_scene_node_set_position(&c->splitindicator[1]->node, border_right_x,
 								border_right_y);
 }
+
+// The hole the border cuts for the frame's contents, in frame coordinates.
+//
+// The border ring is a rounded rect with a cutout of the same shape inset by
+// the border width, and both the title bar and the client surface live inside
+// that cutout. It is the single definition of the frame's inner outline: the
+// border cuts it out, the surface is clipped to it, and the bar is given its
+// top corners, so the three cannot drift apart.
+//
+// The cutout needs the radius the border's *inner* edge has, not the outer one.
+// With the outer radius its arc would land on the border's own outer arc and
+// leave the ring zero-width along the curve, showing the background through it.
+//
+// The region can extend past the frame on the sides that are scrolled out of
+// the monitor, where `offsets` reports how much of the frame is hidden.
+struct clipped_region client_frame_hole(Client *c, struct ivec2 offsets) {
+	struct wlr_box cur = c->animation.current;
+	int32_t bw = (int32_t)c->bw;
+	int32_t left = offsets.x, right = offsets.width, top = offsets.y,
+			bottom = offsets.height;
+
+	int32_t width = GEZERO(cur.width - 2 * bw);
+	int32_t height = GEZERO(cur.height - 2 * bw);
+	int32_t x = GEZERO(bw - left);
+	int32_t y = GEZERO(bw - top);
+
+	if (left > c->bw)
+		width = width - left + bw;
+	if (top > c->bw)
+		height = height - top + bw;
+	if (right > 0)
+		width = MANGO_MIN(cur.width, width + right);
+	if (bottom > 0)
+		height = MANGO_MIN(cur.height, height + bottom);
+
+	return (struct clipped_region){
+		.area = {x, y, width, height},
+		.corners =
+			client_inner_corner_location(c, set_client_corner_location(c)),
+	};
+}
+
+// The clip that keeps the client surface inside the frame's hole. Empty when no
+// title bar pushes the surface down, because then the surface's own corner
+// radius already follows the frame's curve.
+//
+// In frame coordinates, like the hole itself. scene_buffer_apply_effect()
+// subtracts each buffer's position in the frame, which is what turns this into
+// the buffer-local region a scene buffer expects. Doing that step per buffer
+// rather than here is what makes every buffer of the surface tree — subsurfaces
+// included, wherever they sit — clip to the same absolute outline.
+struct clipped_region client_surface_clip(Client *c, struct ivec2 offsets) {
+	if (client_title_bar_height(c) <= 0)
+		return (struct clipped_region){0};
+
+	/* Faded rather than cut: the border ring is drawn under the surface and is
+	 * itself cut with this very hole, so fading by the hole's coverage leaves
+	 * the pixel as c*surface + (1-c)*border. A hard clip would snap the curve
+	 * to whole pixels and leave a stair-step seam. */
+	struct clipped_region hole = client_frame_hole(c, offsets);
+
+	/* Only the top corners are the surface's problem: its own bottom corners
+	 * are the same corners as the hole's (the clip's bottom edge is exactly the
+	 * surface's), so it already fades them by their coverage. Clipping them
+	 * here as well would multiply the two fades together and make the bottom
+	 * corners visibly thinner than the top. */
+	hole.corners.bottom_left = 0;
+	hole.corners.bottom_right = 0;
+	hole.soft = true;
+	return hole;
+}
+
 void client_draw_border(Client *c, struct ivec2 offsets) {
 	if (!c || c->iskilling || !client_surface(c)->mapped)
 		return;
@@ -852,38 +961,11 @@ void client_draw_border(Client *c, struct ivec2 offsets) {
 	int32_t left = offsets.x, right = offsets.width, top = offsets.y,
 			bottom = offsets.height;
 
-	int32_t inner_surface_width = GEZERO(cur.width - 2 * bw);
-	int32_t inner_surface_height = GEZERO(cur.height - 2 * bw);
-	int32_t inner_surface_x = GEZERO(bw - left);
-	int32_t inner_surface_y = GEZERO(bw - top);
-
 	int32_t rect_x = left;
 	int32_t rect_y = top;
 	int32_t rect_width = GEZERO(cur.width - left - right);
 	int32_t rect_height = GEZERO(cur.height - top - bottom);
-
-	if (left > c->bw)
-		inner_surface_width = inner_surface_width - left + bw;
-	if (top > c->bw)
-		inner_surface_height = inner_surface_height - top + bw;
-	if (right > 0)
-		inner_surface_width = MANGO_MIN(cur.width, inner_surface_width + right);
-	if (bottom > 0)
-		inner_surface_height =
-			MANGO_MIN(cur.height, inner_surface_height + bottom);
-
-	// The hole is inset by the border width, so it needs the radius the
-	// border's inner edge actually has. With the outer radius its arc would
-	// land on the border's own outer arc, leaving the ring zero-width along the
-	// curve and showing the background through it.
-	struct fx_corner_radii inner_corners =
-		client_inner_corner_location(c, current_corner_location);
-
-	struct clipped_region clipped_region = {
-		.area = {inner_surface_x, inner_surface_y, inner_surface_width,
-				 inner_surface_height},
-		.corners = inner_corners,
-	};
+	struct clipped_region clipped_region = client_frame_hole(c, offsets);
 
 	/* The title bar lives inside the hole, above the surface, so only the
 	 * surface moves down; the hole itself already covers both. */
@@ -1228,10 +1310,17 @@ void client_set_clip(Client *c, float factor) {
 											   &clip_box);
 
 		buffer_set_effect(
-			c, (BufferData){
-				   1.0f, 1.0f, clip_box.width, clip_box.height,
-				   client_inner_corner_location(c, current_corner_location),
-				   true});
+			c,
+			(BufferData){.width_scale = 1.0f,
+						 .height_scale = 1.0f,
+						 .width = clip_box.width,
+						 .height = clip_box.height,
+						 .corner_location = client_surface_corner_location(
+							 c, current_corner_location),
+						 .blur_corner_location = client_inner_corner_location(
+							 c, current_corner_location),
+						 .clip = client_surface_clip(c, offsets),
+						 .should_scale = true});
 		return;
 	}
 
@@ -1298,8 +1387,10 @@ void client_set_clip(Client *c, float factor) {
 	buffer_data.width = clip_box.width;
 	buffer_data.height = clip_box.height;
 	buffer_data.corner_location =
+		client_surface_corner_location(c, current_corner_location);
+	buffer_data.blur_corner_location =
 		client_inner_corner_location(c, current_corner_location);
-
+	buffer_data.clip = client_surface_clip(c, offsets);
 	if (factor == 1.0 && !c->overview_scene_surface) {
 		buffer_data.width_scale = 1.0;
 		buffer_data.height_scale = 1.0;

@@ -20,8 +20,26 @@ struct fx_corner_radii set_client_corner_location(Client *client);
 // Radius the inner edge of the client's border has. Surfaces and the hole cut
 // for them sit inset by the border width, so they need this instead of the
 // outer radius set_client_corner_location() reports.
-struct fx_corner_radii client_inner_corner_location(Client *client,
-		struct fx_corner_radii outer);
+struct fx_corner_radii
+client_inner_corner_location(Client *client, struct fx_corner_radii outer);
+
+// Corners for the client surface itself. Same as the inner corners, except
+// that the top corners go square while a title bar is drawn: the surface is
+// pushed below the bar, so its own top arc would land under the bar and leave
+// a wedge of background at the frame's corner. The bar draws that arc instead.
+struct fx_corner_radii
+client_surface_corner_location(Client *client, struct fx_corner_radii outer);
+
+// The hole the border cuts for the frame's contents, in frame coordinates. The
+// title bar and the client surface both live inside it, which is what makes the
+// frame read as one piece with the border. The surface is clipped to it when a
+// title bar pushes it down, so the two curves stay on top of each other.
+struct clipped_region client_frame_hole(Client *client, struct ivec2 offsets);
+
+// Where the frame's hole sits relative to the client surface's own tree, i.e.
+// what the surface has to stay inside of. Empty when no title bar pushes the
+// surface down, because then its own corner radius already follows the frame.
+struct clipped_region client_surface_clip(Client *client, struct ivec2 offsets);
 
 bool is_horizontal_stack_layout(Monitor *monitor);
 bool is_horizontal_right_stack_layout(Monitor *monitor);

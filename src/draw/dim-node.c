@@ -147,18 +147,14 @@ void mango_dim_node_set_color(MangoDimNode *node, const float color[4]) {
 	}
 }
 
-void mango_dim_node_set_radius(MangoDimNode *node, int32_t radius,
-							   float exponent) {
+void mango_dim_node_set_corners(MangoDimNode *node,
+								struct fx_corner_radii corners) {
 #if DIM_NODE_CORNER_RADIUS
 	if (!node) {
 		return;
 	}
 
-	if (radius < 0) {
-		radius = 0;
-	}
-	wlr_scene_buffer_set_corner_radii(
-		node->scene_buffer, corner_radii_all_exponent(radius, exponent));
+	wlr_scene_buffer_set_corner_radii(node->scene_buffer, corners);
 #endif
 }
 
