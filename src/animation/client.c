@@ -524,29 +524,35 @@ void client_draw_title_bar(Client *c, struct ivec2 offsets) {
 		return;
 	}
 
-	/* Shrink with the edge offsets exactly like the border rect does, so a
-	 * scrolling window does not leak a bar over its neighbours. */
+	/* Sit inside the same rect the border ring is drawn in. `offsets` is how
+	 * much of the frame is past a monitor edge, and it has to be folded into
+	 * both the position and the size, exactly as client_draw_border() does for
+	 * the ring: the ring's rect runs from `left` to `cur.width - right` in
+	 * frame coordinates, so an edge that is scrolled out does not carry the bar
+	 * with it. Clamping the position to zero instead - which is what this did -
+	 * pins the bar to the frame's own origin while the ring stays at the
+	 * monitor edge, and the two then part at twice the frame's speed. */
 	int32_t left = offsets.x, right = offsets.width, top = offsets.y;
-	int32_t x = bw - left;
-	int32_t y = bw - top;
-	int32_t width = cur.width - 2 * bw - (left > 0 ? left - bw : 0) +
-					(right > 0 ? right : 0);
-	if (width > cur.width - 2 * bw)
-		width = cur.width - 2 * bw;
+	int32_t x = left + bw;
+	int32_t right_edge = cur.width - right - bw;
+	int32_t width = right_edge - x;
 	if (width <= 0) {
 		if (c->title_bar->scene->node.enabled)
 			wlr_scene_node_set_enabled(&c->title_bar->scene->node, false);
 		return;
 	}
 
-	int32_t height = bar_height;
-	if (top > 0)
-		height = MANGO_MAX(bar_height - top + bw, 0);
-
-	if (x < 0)
-		x = 0;
-	if (y < 0)
-		y = 0;
+	/* The bar hangs from the top of the hole, so a frame scrolled upwards takes
+	 * the top of the bar with it and only the bottom part is left to draw. Note
+	 * the offset is only worth applying once it has eaten the border width too:
+	 * below that the bar's own top edge is still on screen. */
+	int32_t y = top > bw ? top : bw;
+	int32_t height = bw + bar_height - y;
+	if (height <= 0) {
+		if (c->title_bar->scene->node.enabled)
+			wlr_scene_node_set_enabled(&c->title_bar->scene->node, false);
+		return;
+	}
 
 	mango_bar_decoration_set_size(c->title_bar, width, height);
 	wlr_scene_node_set_position(&c->title_bar->scene->node, x, y);
@@ -862,7 +868,10 @@ void client_draw_split_border(Client *c, bool hit_no_border,
 								border_right_y);
 }
 
-// The hole the border cuts for the frame's contents, in frame coordinates.
+// The hole the border cuts for the frame's contents, in the border rect's own
+// coordinates - which is the space wlr_scene_rect_set_clipped_region() reads.
+// Add `offsets.x` / `offsets.y` to get frame coordinates, because the border
+// rect is itself drawn at that offset inside the frame.
 //
 // The border ring is a rounded rect with a cutout of the same shape inset by
 // the border width, and both the title bar and the client surface live inside
@@ -921,6 +930,15 @@ struct clipped_region client_surface_clip(Client *c, struct ivec2 offsets) {
 	 * the pixel as c*surface + (1-c)*border. A hard clip would snap the curve
 	 * to whole pixels and leave a stair-step seam. */
 	struct clipped_region hole = client_frame_hole(c, offsets);
+
+	/* The hole comes back in the border rect's coordinates, and the border
+	 * rect sits at `offsets` inside the frame. Adding them puts the clip in
+	 * frame coordinates, which is the space BufferData documents and the space
+	 * scene_buffer_apply_effect() subtracts a buffer's frame position from.
+	 * Leaving the offset out let a scrolling window's clip drift away from the
+	 * frame by exactly the amount that was scrolled out. */
+	hole.area.x += offsets.x;
+	hole.area.y += offsets.y;
 
 	/* Only the top corners are the surface's problem: its own bottom corners
 	 * are the same corners as the hole's (the clip's bottom edge is exactly the
