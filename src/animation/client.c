@@ -498,11 +498,11 @@ void client_draw_shadow(Client *c, struct ivec2 offsets) {
  *
  * The bar is drawn inside the top of the frame. Its outer top corners get the
  * border's inner radius so the bar's background melts into the window body;
- * the bottom corners stay square and are covered by the surface. `offsets`
- * carries the edge offsets of a partially hidden (scrolling / animating) window
- * and only shifts the bar along with the visible part of the frame.
+ * the bottom corners stay square and are covered by the surface. The bar keeps
+ * the frame's full width and is translated with it, so a window leaving an
+ * output takes its bar along and only the part still on the monitor is painted.
  */
-void client_draw_title_bar(Client *c, struct ivec2 offsets) {
+void client_draw_title_bar(Client *c) {
 	if (!c || !c->title_bar)
 		return;
 
@@ -545,19 +545,38 @@ void client_draw_title_bar(Client *c, struct ivec2 offsets) {
 	 * coordinates. The bar paints only this much, so a window leaving an output
 	 * takes its bar with it instead of painting over the neighbour.
 	 *
-	 * The visible span of the frame is `[left, cur.width - right)`, the same
-	 * rect client_draw_border() draws the ring in; the bar sits `bw` inside it,
-	 * so intersect that with the bar's own `[0, width)`. */
-	int32_t left = offsets.x, right = offsets.width, top = offsets.y;
-	int32_t vis_x = GEZERO(left - bw);
-	int32_t vis_y = GEZERO(top - bw);
+	 * This is measured against the monitor rather than taken from `offsets`,
+	 * which is the obvious source but cannot be used here:
+	 * compute_edge_offsets() reports nothing while
+	 * `client_is_ignore_output_clip()` holds, and that is true for a frame that
+	 * is not scrolling or animating. At the end of a tag animation `tagouting`
+	 * is cleared before `current` is snapped back to `geom`, so for one repaint
+	 * the frame sits fully off its own output while the offsets claim nothing
+	 * is clipped, and the whole bar lands on the neighbour. Comparing the two
+	 * boxes directly has no such gap. */
+	int32_t mon_x = c->mon->m.x, mon_y = c->mon->m.y;
+	int32_t vis_x = GEZERO(mon_x - (cur.x + bw));
+	int32_t vis_y = GEZERO(mon_y - (cur.y + bw));
 	int32_t vis_w =
-		MANGO_MIN(right > 0 ? cur.width - right - bw : width, width) - vis_x;
-	int32_t vis_h = height - vis_y;
+		MANGO_MIN(c->mon->m.width + mon_x - (cur.x + bw), width) - vis_x;
+	int32_t vis_h =
+		MANGO_MIN(c->mon->m.height + mon_y - (cur.y + bw), height) - vis_y;
 	if (vis_w < 0)
 		vis_w = 0;
 	if (vis_h < 0)
 		vis_h = 0;
+
+	/* Nothing left on this monitor: hide the bar outright. This has to be its
+	 * own case because an empty `visible` box is the bar's "no clip" state - on
+	 * the last frame of an exit the clamp above lands on exactly zero, and
+	 * handing that over would draw the whole bar at full width just outside the
+	 * output it is leaving. */
+	if (vis_w <= 0 || vis_h <= 0) {
+		if (c->title_bar->scene->node.enabled)
+			wlr_scene_node_set_enabled(&c->title_bar->scene->node, false);
+		return;
+	}
+
 	mango_bar_decoration_set_visible(c->title_bar, vis_x, vis_y, vis_w, vis_h);
 
 	mango_bar_decoration_set_size(c->title_bar, width, height);
@@ -1271,7 +1290,7 @@ void client_set_clip(Client *c, float factor) {
 		client_draw_shadow(c, offsets);
 		client_draw_group_bar(c, offsets);
 		client_draw_tabbar(c, offsets);
-		client_draw_title_bar(c, offsets);
+		client_draw_title_bar(c);
 		client_draw_blur(c, surface_clip_offset);
 		client_draw_shield(c, surface_clip_offset);
 		client_draw_dim(c, surface_clip_offset);
@@ -1309,7 +1328,7 @@ void client_set_clip(Client *c, float factor) {
 		client_draw_shadow(c, offsets);
 		client_draw_group_bar(c, offsets);
 		client_draw_tabbar(c, offsets);
-		client_draw_title_bar(c, offsets);
+		client_draw_title_bar(c);
 		client_draw_blur(c, surface_clip_offset);
 		client_draw_shield(c, surface_clip_offset);
 		client_draw_dim(c, surface_clip_offset);
@@ -1371,7 +1390,7 @@ void client_set_clip(Client *c, float factor) {
 	client_draw_shadow(c, offsets);
 	client_draw_group_bar(c, offsets);
 	client_draw_tabbar(c, offsets);
-	client_draw_title_bar(c, offsets);
+	client_draw_title_bar(c);
 	client_draw_shield(c, surface_clip_offset);
 	client_draw_dim(c, surface_clip_offset);
 	client_draw_blur(c, surface_clip_offset);
@@ -1883,7 +1902,7 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 		client_get_clip(c, &clip);
 		client_draw_group_bar(c, offsets);
 		client_draw_tabbar(c, offsets);
-		client_draw_title_bar(c, offsets);
+		client_draw_title_bar(c);
 		client_draw_shadow(c, offsets);
 
 		struct ivec2 surface_clip_offset = clip_to_hide(c, &clip, offsets);
