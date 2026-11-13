@@ -1914,6 +1914,29 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 			client_update_xwayland_clip(c, &clip);
 		else
 			wlr_scene_subsurface_tree_set_clip(&c->scene_surface->node, &clip);
+
+		/* The surface buffers carry the clip that keeps them inside the frame's
+		 * hole, and the wlr clip above does not touch it. Nothing else in this
+		 * branch refreshes it either, so a drag would leave the buffers clipped
+		 * to the size the window had when the grab started: the bar and the
+		 * border grow while the content stays put, until some unrelated redraw
+		 * happens to update it.
+		 *
+		 * The other paths refresh this through buffer_set_effect(), which
+		 * rescales the surface and so is not wanted mid-drag. Pass the scales a
+		 * grab would be given anyway and only the clip and corners arrive. */
+		struct fx_corner_radii grab_corners = set_client_corner_location(c);
+		buffer_set_effect(
+			c, (BufferData){.width_scale = 1.0f,
+							.height_scale = 1.0f,
+							.width = clip.width,
+							.height = clip.height,
+							.corner_location =
+								client_surface_corner_location(c, grab_corners),
+							.blur_corner_location =
+								client_inner_corner_location(c, grab_corners),
+							.clip = client_surface_clip(c, offsets),
+							.should_scale = false});
 		return;
 	}
 
