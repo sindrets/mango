@@ -170,6 +170,13 @@ typedef struct MangoBarDecoration {
 	bool corners_override;
 	struct fx_corner_radii corners;
 
+	/* Edges (enum wlr_edges) this bar's rects snap outwards to whole device
+	 * pixels. A bar that sits directly on the client surface sets its bottom
+	 * edge: at a fractional output scale the bar and the surface would
+	 * otherwise both fade the device pixel their common edge crosses, and the
+	 * composed coverage lets the desktop show through a sub-pixel line. */
+	uint32_t snap_edges;
+
 } MangoBarDecoration;
 
 void mango_text_global_finish(void);
@@ -229,6 +236,12 @@ int32_t mango_bar_decoration_button_at(MangoBarDecoration *node, double lx,
  * corners so the bar and the surface share one rounded outline. */
 void mango_bar_decoration_set_corners(MangoBarDecoration *node,
 									  struct fx_corner_radii corners);
+
+/* Edges (bitmask of enum wlr_edges) the bar's own rects snap outwards to whole
+ * device pixels. A bar drawn directly on the client surface sets its bottom
+ * edge so the two do not both fade the device pixel they share. */
+void mango_bar_decoration_set_snap_edges(MangoBarDecoration *node,
+										 uint32_t edges);
 void mango_jump_label_node_apply_config(MangoJumpLabel *node,
 										const DecorateDrawData *data);
 void mango_bar_decoration_apply_config(MangoBarDecoration *node,

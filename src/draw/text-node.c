@@ -9,6 +9,7 @@
 #include <string.h>
 #include <wayland-server-core.h>
 #include <wlr/interfaces/wlr_buffer.h>
+#include <wlr/util/edges.h>
 
 #if defined(__has_include) && __has_include(<scenefx/types/fx/clipped_region.h>)
 #include <scenefx/types/fx/clipped_region.h>
@@ -1018,6 +1019,13 @@ void mango_bar_decoration_set_corners(MangoBarDecoration *node,
 	}
 }
 
+void mango_bar_decoration_set_snap_edges(MangoBarDecoration *node,
+										 uint32_t edges) {
+	if (!node || node->snap_edges == edges)
+		return;
+	node->snap_edges = edges;
+}
+
 static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 	int32_t border = node->border_width > 0 ? node->border_width : 0;
 	int32_t width = node->target_width > 0 ? node->target_width : 0;
@@ -1047,6 +1055,14 @@ static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 					  width, height);
 	rect_apply(node->bg, node->focused ? node->focus_bg_color : node->bg_color,
 			   inner, border, border, inner_w, inner_h);
+
+#if TEXT_NODE_CORNER_RADIUS
+	/* Only the outermost rect may snap: an inset background snapping its own
+	 * edge would push it out over the border it sits inside. */
+	wlr_scene_rect_set_snap_edges(node->border, node->snap_edges);
+	wlr_scene_rect_set_snap_edges(node->bg, border == 0 ? node->snap_edges
+														: WLR_EDGE_NONE);
+#endif
 
 	node->logical_width = width;
 	node->logical_height = height;

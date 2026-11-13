@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <wayland-server-core.h>
 #include <wlr/util/box.h>
+#include <wlr/util/edges.h>
 
 /* Client / surface kinds stored in Client.type, LayerSurface.type, Popup.type
  * and SnapshotMetadata.type. */

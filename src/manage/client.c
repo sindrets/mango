@@ -4560,6 +4560,11 @@ void client_add_title_bar(Client *c) {
 	if (!c->title_bar)
 		return;
 
+	/* The bar is drawn on top of the surface and its bottom edge lands on the
+	 * same device pixel as the surface's top edge. Snap the bar's edge out so
+	 * the bar owns that pixel; see mango_bar_decoration_set_snap_edges(). */
+	mango_bar_decoration_set_snap_edges(c->title_bar, WLR_EDGE_BOTTOM);
+
 	/* The bar must sit above the surface but below nothing else that a
 	 * decoration owns, so raise it over the surface tree. */
 	wlr_scene_node_raise_to_top(&c->title_bar->scene->node);
