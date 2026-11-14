@@ -76,19 +76,19 @@ struct ivec2 compute_edge_offsets(Client *c) {
 	return offsets;
 }
 
+/* The bar height for a frame of `frame_height`. client_title_bar_height()
+ * already clamps against the client's own geometry; this narrows that further
+ * for the frames an animation draws, which can be shorter than `c->geom` and
+ * would otherwise put the bar outside the frame it is drawn into. */
 void client_title_bar_draw_height(Client *c, int32_t frame_height,
 								  int32_t *bar_height) {
 	*bar_height = client_title_bar_height(c);
 	if (*bar_height <= 0)
 		return;
 
-	/* Animations can shrink the frame under the bar; keep the drawing inside
-	 * the frame and leave a pixel of surface. */
+	/* Leave a pixel of surface below the bar. */
 	int32_t room = frame_height - 2 * (int32_t)c->bw - 1;
-	if (*bar_height > room)
-		*bar_height = room;
-	if (*bar_height < 0)
-		*bar_height = 0;
+	*bar_height = MANGO_MIN(*bar_height, MANGO_MAX(room, 0));
 }
 
 void client_actual_size(Client *c, int32_t *width, int32_t *height) {
@@ -1034,20 +1034,17 @@ void client_draw_border(Client *c, struct ivec2 offsets) {
 	wlr_scene_node_set_position(&c->border->node, rect_x, rect_y);
 	wlr_scene_rect_set_corner_radii(c->border, current_corner_location);
 	wlr_scene_rect_set_clipped_region(c->border, clipped_region);
-
-	/* The ring owns the outermost pixels of the frame, so it has to be the
-	 * topmost node of the window: anything drawn over it tints its pixels where
-	 * the two overlap. The title bar is exactly such a node - its rounded top
-	 * corners are antialiased and slide a pixel into the ring's band - which
-	 * showed up as the vertical border turning olive along the bar. Done here
-	 * rather than once at creation so the ring stays on top for as long as both
-	 * are drawn, and so it costs a comparison once they are already in order
-	 * (wlr_scene_node_raise_to_top() returns early when it is the top
-	 * child).
+	/* The ring has to sit above the title bar: the bar's rounded top corners
+	 * are antialiased and slide a pixel into the ring's band, which showed up
+	 * as the vertical border turning olive along the bar. Placement comes from
+	 * the creation order in client_init() - border, then title bar, then
+	 * shadow, blur and shield, all lowered to the bottom - so lowering the
+	 * ring here would drop it under the shadow, whose hard-cut hole then
+	 * multiplies the ring's partially covered pixels into a dark fringe along
+	 * the curve (commit 846745ea removed exactly that). Leave the order be.
 	 */
-	if (c->border->node.enabled)
-		wlr_scene_node_lower_to_bottom(&c->border->node);
 }
+
 struct ivec2 clip_to_hide(Client *c, struct wlr_box *clip_box,
 						  struct ivec2 offsets) {
 	struct ivec2 offset = {0};
