@@ -1165,15 +1165,27 @@ static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 	}
 	struct fx_corner_radii inner = inner_corners_of(outer, border);
 
-	rect_apply_border(node->border, node->border_color, outer, inner, border,
-					  box_x, box_y, box_w, box_h);
-	rect_apply(node->bg, node->focused ? node->focus_bg_color : node->bg_color,
-			   inner, box_x + border, box_y + border, inner_w, inner_h);
-
+	if (border > 0) {
+		rect_apply_border(node->border, node->border_color, outer, inner,
+						  border, box_x, box_y, box_w, box_h);
+		rect_apply(node->bg,
+				   node->focused ? node->focus_bg_color : node->bg_color, inner,
+				   box_x + border, box_y + border, inner_w, inner_h);
+	} else {
+		/* No outline of its own: a title bar's border is the window frame's,
+		 * which is drawn outside and around the whole frame. Painting the
+		 * border rect anyway would put its colour under the background, where
+		 * it shows through a translucent fill. */
+		wlr_scene_rect_set_size(node->border, 0, 0);
+		rect_apply(node->bg,
+				   node->focused ? node->focus_bg_color : node->bg_color, outer,
+				   box_x, box_y, box_w, box_h);
+	}
 #if TEXT_NODE_CORNER_RADIUS
 	/* Only the outermost rect may snap: an inset background snapping its own
 	 * edge would push it out over the border it sits inside. */
-	wlr_scene_rect_set_snap_edges(node->border, node->snap_edges);
+	if (border > 0)
+		wlr_scene_rect_set_snap_edges(node->border, node->snap_edges);
 	wlr_scene_rect_set_snap_edges(node->bg, border == 0 ? node->snap_edges
 														: WLR_EDGE_NONE);
 #endif

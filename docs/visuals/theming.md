@@ -97,6 +97,10 @@ specific windows with the `no_title_bar` window rule.
 The rounded corners come from scenefx. Built against plain wlroots the bar is
 still drawn and positioned, but its corners and the window's are square.
 
+The bar has no border and no radius of its own: the window frame's border
+runs around the bar too, and the bar inherits the frame's corner radius, so
+neither is settable here.
+
 | Setting | Default | Description |
 | :--- | :--- | :--- |
 | `title_bar_height` | `30` | Title bar height. Set to `0` to disable title bars. |
@@ -108,9 +112,6 @@ still drawn and positioned, but its corners and the window's are square.
 | `title_bar_decorate_bg_color` | `0x32302fff` | Background color. |
 | `title_bar_decorate_focus_fg_color` | `0x9ece6aff` | Text color while focused. |
 | `title_bar_decorate_focus_bg_color` | `0x1d2021ff` | Background color while focused. |
-| `title_bar_decorate_border_color` | `0x3b4261ff` | Border color. |
-| `title_bar_decorate_border_width` | `0` | Border width. |
-| `title_bar_decorate_corner_radius` | `0` | Corner radius. Overridden by the window radius. |
 | `title_bar_decorate_padding_x` | `0` | Horizontal padding. |
 | `title_bar_decorate_padding_y` | `0` | Vertical padding. |
 | `title_bar_decorate_font_desc` | `monospace Bold 13` | Font description. |

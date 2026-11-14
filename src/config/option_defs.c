@@ -776,21 +776,6 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		} else {
 			convert_hex_to_rgba(config->title_bardata.focus_bg_color, color);
 		}
-	} else if (is_title_bar_decorate_key(key, "border_color")) {
-		int64_t color = parse_color(value);
-		if (color == -1) {
-			mango_error(false, WLR_ERROR,
-						"Invalid title_bar_decorate_border_color "
-						"format: \033[1m\033[31m%s\033[0m\n",
-						value);
-			return false;
-		} else {
-			convert_hex_to_rgba(config->title_bardata.border_color, color);
-		}
-	} else if (is_title_bar_decorate_key(key, "border_width")) {
-		config->title_bardata.border_width = CLAMP_INT(atoi(value), 0, 100);
-	} else if (is_title_bar_decorate_key(key, "corner_radius")) {
-		config->title_bardata.corner_radius = CLAMP_INT(atoi(value), 0, 100);
 	} else if (is_title_bar_decorate_key(key, "padding_x")) {
 		config->title_bardata.padding_x = CLAMP_INT(atoi(value), 0, 100);
 	} else if (is_title_bar_decorate_key(key, "padding_y")) {
@@ -2754,9 +2739,12 @@ void set_value_default() {
 	config.title_message_bardata.corner_radius = 15;
 
 	/* The title bar fills the top of the window frame, so it inherits the
-	 * window colors instead of standing out like a tab strip. A
-	 * `corner_radius` of 0 means "follow the window border radius", which
-	 * is what makes the bar read as part of the window. */
+	 * window colors instead of standing out like a tab strip. Its corners and
+	 * its outline are the frame's own: the bar carries no border, and its
+	 * radius comes from the window on every draw rather than from config, so
+	 * neither can be set here. Both are zeroed rather than left at the group
+	 * bar's values because DecorateDrawData is shared with the bars that do
+	 * draw their own outline. */
 	config.title_bardata = config.groupbardata;
 	config.title_bardata.border_width = 0;
 	config.title_bardata.corner_radius = 0;
@@ -3132,10 +3120,6 @@ void override_config(void) {
 	config.title_message_bardata.padding_y =
 		CLAMP_INT(config.title_message_bardata.padding_y, 0, 100);
 
-	config.title_bardata.border_width =
-		CLAMP_INT(config.title_bardata.border_width, 0, 100);
-	config.title_bardata.corner_radius =
-		CLAMP_INT(config.title_bardata.corner_radius, 0, 100);
 	config.title_bardata.padding_x =
 		CLAMP_INT(config.title_bardata.padding_x, 0, 100);
 	config.title_bardata.padding_y =
