@@ -3141,15 +3141,6 @@ void override_config(void) {
 	config.title_bardata.padding_y =
 		CLAMP_INT(config.title_bardata.padding_y, 0, 100);
 
-	config.title_bardata.border_width =
-		CLAMP_INT(config.title_bardata.border_width, 0, 100);
-	config.title_bardata.corner_radius =
-		CLAMP_INT(config.title_bardata.corner_radius, 0, 100);
-	config.title_bardata.padding_x =
-		CLAMP_INT(config.title_bardata.padding_x, 0, 100);
-	config.title_bardata.padding_y =
-		CLAMP_INT(config.title_bardata.padding_y, 0, 100);
-
 	config.tabbardata.border_width =
 		CLAMP_INT(config.tabbardata.border_width, 0, 100);
 	config.tabbardata.corner_radius =

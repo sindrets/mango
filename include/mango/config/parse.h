@@ -506,10 +506,10 @@ typedef struct {
 	/* Title bars: a MacOS-like strip with traffic-light buttons drawn
 	 * inside the top of the window frame. Zero height disables them
 	 * globally. */
-	uint32_t title_bar_height;
-	uint32_t title_bar_button_size;
-	uint32_t title_bar_button_gap;
-	uint32_t title_bar_button_margin;
+	int32_t title_bar_height;
+	int32_t title_bar_button_size;
+	int32_t title_bar_button_gap;
+	int32_t title_bar_button_margin;
 	int32_t title_bar_buttons_left;
 	float scratchpad_width_ratio;
 	float scratchpad_height_ratio;

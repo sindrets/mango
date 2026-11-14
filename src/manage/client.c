@@ -4557,7 +4557,14 @@ int32_t client_title_bar_height(Client *c) {
 	if (!c || !c->title_bar || !client_wants_title_bar(c))
 		return 0;
 
-	return config.title_bar_height > 0 ? (int32_t)config.title_bar_height : 0;
+	/* Every caller reads this one number: the surface is both positioned by it
+	 * and sized by it, so leaving it unclamped while the draw path clamps would
+	 * leave a gap at the bottom of a window shorter than the bar. The frame has
+	 * to keep a pixel of surface, hence the -1. */
+	int32_t height = config.title_bar_height > 0 ? config.title_bar_height : 0;
+	int32_t room = c->geom.height - 2 * (int32_t)c->bw - 1;
+
+	return MANGO_MIN(height, MANGO_MAX(room, 0));
 }
 
 void client_add_title_bar(Client *c) {
