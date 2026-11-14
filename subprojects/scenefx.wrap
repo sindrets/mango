@@ -3,7 +3,7 @@
 ; update --init` and a hand-placed clone both take precedence.
 [wrap-git]
 url = https://github.com/sindrets/scenefx.git
-revision = 8ae34bc3f7a04a79852a4376c46e3667997e726c
+revision = ac6b8d286c31b23087ddce754013fc839af2ee94
 depth = 1
 
 [provide]

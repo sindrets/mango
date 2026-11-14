@@ -945,13 +945,12 @@ struct clipped_region client_frame_hole(Client *c, struct ivec2 offsets) {
 // and the clip's top corners are what keep its square top edge from spilling
 // outside the arc.
 //
-// The area's other edges are pushed clear of the buffer. They would otherwise
-// land exactly on its own edges and snap them to whole pixels, which throws
-// away the antialiasing the buffer's box edge does at a fractional output
-// scale - and that antialiasing is what the ring underneath turns into the
-// border's inner blend. Empty when no title bar pushes the surface down,
-// because then the surface's own corner radius already follows the frame's
-// curve.
+// The area is the hole itself, unexpanded, and the region is soft. Expanding a
+// side would move that side's arc centre with it (see the note in the
+// function), so the surface would paint past the stroke; `soft` supplies the
+// antialiasing instead, fading the surface by the coverage the hole itself has.
+// Empty when no title bar pushes the surface down, because then the surface's
+// own corner radius already follows the frame's curve.
 //
 // In frame coordinates, like the hole itself. scene_buffer_apply_effect()
 // subtracts each buffer's position in the frame, which is what turns this into
@@ -972,11 +971,19 @@ struct clipped_region client_surface_clip(Client *c, struct ivec2 offsets) {
 	hole.corners.bottom_left = 0;
 	hole.corners.bottom_right = 0;
 
-	/* One border width of slack on the three edges that are not corners. */
-	int32_t margin = 2 * (int32_t)c->bw + 1;
-	hole.area.x -= margin;
-	hole.area.width += margin;
-	hole.area.height += margin;
+	/* The clip describes exactly the hole the ring is cut with. Each edge of a
+	 * rounded box carries its side's arc centre, so pushing an edge outward
+	 * moves that centre with it: the surface then paints that much further out
+	 * than the hole on that side and covers the stroke. That is what broke the
+	 * top-left corner at large radii, while the top-right - whose edge the old
+	 * asymmetric margin left alone - stayed correct.
+	 *
+	 * The antialiasing comes from `soft` instead, which fades the surface by
+	 * the coverage the hole itself has. That blends the arc into the ring and
+	 * fades the straight edges across whichever pixel their edge lands in, so
+	 * the clip need not be pushed off the buffer's own edges to avoid
+	 * snapping. */
+	hole.soft = true;
 	return hole;
 }
 
