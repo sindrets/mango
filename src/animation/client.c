@@ -541,30 +541,62 @@ void client_draw_title_bar(Client *c) {
 	int32_t x = bw;
 	int32_t y = bw;
 
-	/* How much of the bar still has a monitor under it, in bar-local
-	 * coordinates. The bar paints only this much, so a window leaving an output
-	 * takes its bar with it instead of painting over the neighbour.
+	/* How much of the bar has a monitor under it, in bar-local coordinates.
+	 * The bar paints only this much, so a window leaving an output takes its
+	 * bar with it instead of painting over the neighbour.
 	 *
-	 * This is measured against the monitor rather than taken from `offsets`,
-	 * which is the obvious source but cannot be used here:
-	 * compute_edge_offsets() reports nothing while
-	 * `client_is_ignore_output_clip()` holds, and that is true for a frame that
-	 * is not scrolling or animating. At the end of a tag animation `tagouting`
-	 * is cleared before `current` is snapped back to `geom`, so for one repaint
-	 * the frame sits fully off its own output while the offsets claim nothing
-	 * is clipped, and the whole bar lands on the neighbour. Comparing the two
-	 * boxes directly has no such gap. */
-	int32_t mon_x = c->mon->m.x, mon_y = c->mon->m.y;
-	int32_t vis_x = GEZERO(mon_x - (cur.x + bw));
-	int32_t vis_y = GEZERO(mon_y - (cur.y + bw));
-	int32_t vis_w =
-		MANGO_MIN(c->mon->m.width + mon_x - (cur.x + bw), width) - vis_x;
-	int32_t vis_h =
-		MANGO_MIN(c->mon->m.height + mon_y - (cur.y + bw), height) - vis_y;
-	if (vis_w < 0)
-		vis_w = 0;
-	if (vis_h < 0)
-		vis_h = 0;
+	 * `offsets` cannot be used for this: compute_edge_offsets() reports
+	 * nothing while `client_is_ignore_output_clip()` holds, and that is true
+	 * for a frame that is not scrolling or animating. At the end of a tag
+	 * animation `tagouting` is cleared before `current` is snapped back to
+	 * `geom`, so for one repaint the frame sits fully off its own output while
+	 * the offsets claim nothing is clipped, and the whole bar lands on the
+	 * neighbour. Measuring against the outputs has no such gap. */
+	struct wlr_box bar_box = {cur.x + bw, cur.y + bw, width, height};
+	struct wlr_box covered = {0};
+	if (!client_is_ignore_output_clip(c) && c->mon) {
+		/* A tag animation slides the frame off its own output and across
+		 * the neighbour, and it must not paint there on the way out. Clip
+		 * to the output the window belongs to, as before. */
+		wlr_box_intersection(&covered, &bar_box, &c->mon->m);
+	} else {
+		/* Otherwise the bar belongs wherever it currently is, which is
+		 * not necessarily `c->mon`: `movewin` moves `geom` without
+		 * touching the monitor, and a drag reaches the new output on a
+		 * motion event, one release before the window is handed over.
+		 * Clipping to `c->mon` in those cases makes this box empty and
+		 * hides the bar, which is the window losing its title bar on the
+		 * way across - and, over IPC, keeping it lost until something
+		 * re-assigns the monitor. */
+		covered = (struct wlr_box){0};
+		Monitor *iter;
+		wl_list_for_each(iter, &server.monitors, link) {
+			if (!iter->wlr_output->enabled)
+				continue;
+			struct wlr_box hit;
+			if (!wlr_box_intersection(&hit, &bar_box, &iter->m))
+				continue;
+			if (covered.width <= 0) {
+				covered = hit;
+				continue;
+			}
+			/* Several outputs: take the box around all the pieces. A
+			 * clip region is one rectangle, and the gap between two
+			 * outputs is covered by neither, so spanning it is free. */
+			int32_t x0 = MANGO_MIN(covered.x, hit.x);
+			int32_t y0 = MANGO_MIN(covered.y, hit.y);
+			int32_t x1 =
+				MANGO_MAX(covered.x + covered.width, hit.x + hit.width);
+			int32_t y1 =
+				MANGO_MAX(covered.y + covered.height, hit.y + hit.height);
+			covered = (struct wlr_box){x0, y0, x1 - x0, y1 - y0};
+		}
+	}
+
+	int32_t vis_x = covered.x - bar_box.x;
+	int32_t vis_y = covered.y - bar_box.y;
+	int32_t vis_w = covered.width;
+	int32_t vis_h = covered.height;
 
 	/* Nothing left on this monitor: hide the bar outright. This has to be its
 	 * own case because an empty `visible` box is the bar's "no clip" state - on
