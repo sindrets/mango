@@ -380,6 +380,15 @@ void client_set_state_colors(Client *c, const float border_color[4],
 							 const float dim_color[4]) {
 	client_set_border_color(c, border_color);
 
+	/* The title bar's focus decoration belongs here, next to the border colour
+	 * it has to agree with. Every focus change, urgency change and monitor or
+	 * tag move that recolours the border goes through this function, so driving
+	 * the bar from the same place is what keeps the two in step. Updating it
+	 * only where the bar happens to be redrawn - client_draw_title_bar() - left
+	 * it changing whenever the window was redrawn for an unrelated reason,
+	 * which read as arbitrary. */
+	client_update_title_bar_focus(c);
+
 	if (c->dim_node) {
 		mango_dim_node_set_color(c->dim_node, dim_color);
 	}
@@ -4608,7 +4617,13 @@ void client_update_title_bar_focus(Client *c) {
 	if (!c || !c->title_bar || !c->mon)
 		return;
 
-	bool focused = c == c->mon->sel && VISIBLEON(c, c->mon);
+	/* The same rule get_border_color() applies: a window is focused when it is
+	 * the selected client of the selected monitor. Asking the window's own
+	 * monitor instead made every monitor's selection look focused, while only
+	 * one of them had a focused border. */
+	bool focused = server.selected_monitor &&
+				   c->mon == server.selected_monitor &&
+				   c == server.selected_monitor->sel;
 	mango_bar_decoration_set_focus(c->title_bar, focused);
 }
 
