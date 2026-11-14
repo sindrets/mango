@@ -582,11 +582,11 @@ void client_draw_title_bar(Client *c) {
 	mango_bar_decoration_set_size(c->title_bar, width, height);
 	wlr_scene_node_set_position(&c->title_bar->scene->node, x, y);
 
-	/* The bar fills the hole the border cuts for the frame content, so its top
-	 * corners are the hole's corners: same arc centre, radius smaller by the
-	 * border width. That lines the bar's curve up with the frame's outer curve
-	 * and keeps the ring the same width around both. The bottom of the bar sits
-	 * against the surface, so those corners stay square. */
+	/* The bar's box is the frame's content box, so its top corners are the
+	 * hole's corners: same arc centre, radius smaller by the border width. The
+	 * ring underneath is what turns the bar's own antialiased edge into a
+	 * blend, which is what keeps the border one unbroken line where it meets
+	 * the bar. */
 	struct fx_corner_radii corners = set_client_corner_location(c);
 	corners = client_inner_corner_location(c, corners);
 	corners.bottom_left = 0;
@@ -937,42 +937,46 @@ struct clipped_region client_frame_hole(Client *c, struct ivec2 offsets) {
 	};
 }
 
-// The clip that keeps the client surface inside the frame's hole. Empty when no
-// title bar pushes the surface down, because then the surface's own corner
-// radius already follows the frame's curve.
+// The clip that keeps the client surface inside the frame's hole.
+//
+// Only the top corners need it. A surface pushed down by a title bar cannot
+// follow the frame's curve with a corner radius of its own - the corner would
+// have to be centred above the surface - so it is clipped to the hole instead,
+// and the clip's top corners are what keep its square top edge from spilling
+// outside the arc.
+//
+// The area's other edges are pushed clear of the buffer. They would otherwise
+// land exactly on its own edges and snap them to whole pixels, which throws
+// away the antialiasing the buffer's box edge does at a fractional output
+// scale - and that antialiasing is what the ring underneath turns into the
+// border's inner blend. Empty when no title bar pushes the surface down,
+// because then the surface's own corner radius already follows the frame's
+// curve.
 //
 // In frame coordinates, like the hole itself. scene_buffer_apply_effect()
 // subtracts each buffer's position in the frame, which is what turns this into
-// the buffer-local region a scene buffer expects. Doing that step per buffer
-// rather than here is what makes every buffer of the surface tree — subsurfaces
-// included, wherever they sit — clip to the same absolute outline.
+// the buffer-local region a scene buffer expects.
 struct clipped_region client_surface_clip(Client *c, struct ivec2 offsets) {
 	if (client_title_bar_height(c) <= 0)
 		return (struct clipped_region){0};
 
-	/* Faded rather than cut: the border ring is drawn under the surface and is
-	 * itself cut with this very hole, so fading by the hole's coverage leaves
-	 * the pixel as c*surface + (1-c)*border. A hard clip would snap the curve
-	 * to whole pixels and leave a stair-step seam. */
 	struct clipped_region hole = client_frame_hole(c, offsets);
 
-	/* The hole comes back in the border rect's coordinates, and the border
-	 * rect sits at `offsets` inside the frame. Adding them puts the clip in
-	 * frame coordinates, which is the space BufferData documents and the space
-	 * scene_buffer_apply_effect() subtracts a buffer's frame position from.
-	 * Leaving the offset out let a scrolling window's clip drift away from the
-	 * frame by exactly the amount that was scrolled out. */
+	/* The hole comes back in the border rect's coordinates, and the border rect
+	 * sits at `offsets` inside the frame. Adding them puts the clip in frame
+	 * coordinates, which is the space BufferData documents and the space
+	 * scene_buffer_apply_effect() subtracts a buffer's frame position from. */
 	hole.area.x += offsets.x;
 	hole.area.y += offsets.y;
 
-	/* Only the top corners are the surface's problem: its own bottom corners
-	 * are the same corners as the hole's (the clip's bottom edge is exactly the
-	 * surface's), so it already fades them by their coverage. Clipping them
-	 * here as well would multiply the two fades together and make the bottom
-	 * corners visibly thinner than the top. */
 	hole.corners.bottom_left = 0;
 	hole.corners.bottom_right = 0;
-	hole.soft = true;
+
+	/* One border width of slack on the three edges that are not corners. */
+	int32_t margin = 2 * (int32_t)c->bw + 1;
+	hole.area.x -= margin;
+	hole.area.width += margin;
+	hole.area.height += margin;
 	return hole;
 }
 
@@ -1034,8 +1038,8 @@ void client_draw_border(Client *c, struct ivec2 offsets) {
 	 * (wlr_scene_node_raise_to_top() returns early when it is the top
 	 * child).
 	 */
-	if (c->title_bar && c->title_bar->scene->node.enabled)
-		wlr_scene_node_raise_to_top(&c->border->node);
+	if (c->border->node.enabled)
+		wlr_scene_node_lower_to_bottom(&c->border->node);
 }
 struct ivec2 clip_to_hide(Client *c, struct wlr_box *clip_box,
 						  struct ivec2 offsets) {
