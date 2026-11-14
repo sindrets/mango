@@ -21,7 +21,11 @@ typedef struct Arg {
 
 enum { PREV, NEXT };
 enum { MON_PREV = -1, MON_NEXT = -2 };
-enum { FORCE, UNFORCE };
+/* UNFORCE first so that it is 0: a zero-initialised Arg - which is what every
+ * caller that only fills in .tc gets - has to mean the polite close, not
+ * SIGKILL. With FORCE at 0, a title bar's close button killed the whole
+ * process, taking every window that shared its pid with it. */
+enum { UNFORCE, FORCE };
 enum {
 	OVERCIRCLE_PREV = PREV,
 	OVERCIRCLE_NEXT = NEXT,
