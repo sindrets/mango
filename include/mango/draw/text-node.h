@@ -92,6 +92,7 @@ typedef struct MangoBarButton {
 	int32_t cached_size;
 	float cached_scale;
 	bool cached_hover;
+	bool cached_focused;
 	bool cached_valid;
 } MangoBarButton;
 

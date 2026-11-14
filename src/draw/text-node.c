@@ -888,6 +888,8 @@ static bool bar_button_box(const MangoBarDecoration *node, int32_t index,
 	*out_y = (node->target_height - size) / 2;
 	return true;
 }
+static const float bar_button_unfocused_color[4] = {
+	0x44 / 255.0f, 0x48 / 255.0f, 0x4d / 255.0f, 1.0f};
 
 static void bar_button_render(MangoBarDecoration *node, int32_t index,
 							  int32_t size, int32_t pixel, float scale,
@@ -909,10 +911,30 @@ static void bar_button_render(MangoBarDecoration *node, int32_t index,
 	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
 
 	double center = pixel / 2.0;
-	const float *circle = hover ? button->hover_color : button->color;
+	/* An unfocused window shows flat grey discs: one colour for all three
+	 * buttons and no glyph. The traffic lights only mean something on the
+	 * window being worked in, and keeping them coloured on every other window
+	 * turns the screen into a row of stop signs. */
+	const float *circle =
+		!node->focused
+			? bar_button_unfocused_color
+			: (hover ? button->hover_color : button->color);
 	cairo_set_source_rgba(cr, circle[0], circle[1], circle[2], circle[3]);
 	cairo_arc(cr, center, center, center, 0, 2 * 3.14159265358979323846);
 	cairo_fill(cr);
+
+	if (!node->focused) {
+		cairo_surface_flush(surface);
+		cairo_destroy(cr);
+		text_node_install(button->scene_buffer, &button->texture, surface,
+						  pixel, pixel);
+		button->cached_size = size;
+		button->cached_scale = scale;
+		button->cached_hover = hover;
+		button->cached_focused = node->focused;
+		button->cached_valid = true;
+		return;
+	}
 
 	double line_width = pixel * 0.12;
 	if (line_width < 1.0)
@@ -958,6 +980,7 @@ static void bar_button_render(MangoBarDecoration *node, int32_t index,
 	button->cached_size = size;
 	button->cached_scale = scale;
 	button->cached_hover = hover;
+	button->cached_focused = node->focused;
 	button->cached_valid = true;
 }
 
@@ -984,7 +1007,8 @@ static void bar_buttons_sync(MangoBarDecoration *node) {
 
 		bool hover = node->hover_button == i;
 		if (!button->cached_valid || button->cached_size != size ||
-			button->cached_scale != scale || button->cached_hover != hover) {
+			button->cached_scale != scale || button->cached_hover != hover ||
+			button->cached_focused != node->focused) {
 			bar_button_render(node, i, size, pixel, scale, hover);
 		}
 
