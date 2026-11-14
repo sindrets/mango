@@ -1010,6 +1010,19 @@ bool pointer_begin_move_resize(Client *gc, uint32_t mode, double x, double y,
 	server.grab_client = gc;
 	server.grab_is_border_resize = edge != 0;
 
+	/* The bar under the pointer is no longer hovered once a grab owns it, and
+	 * pointer_process_motion() stops refreshing the hover while the grab lasts
+	 * (see the cursor_mode test there). Dropping it here is what stops a button
+	 * the drag started on from staying highlighted until the pointer moves
+	 * again after the grab ends. */
+	if (server.title_bar_hover) {
+		mango_bar_decoration_set_button_hover(server.title_bar_hover, 0, false);
+		server.title_bar_hover = NULL;
+	}
+	if (server.group_bar_hover) {
+		mango_bar_decoration_set_close_hover(server.group_bar_hover, false);
+		server.group_bar_hover = NULL;
+	}
 	if (gc->isfloating == 0 && mode == CurMove)
 		client_begin_drag_float(gc);
 
@@ -1849,7 +1862,9 @@ bool pointer_process_button_press(struct wlr_pointer_button_event *event) {
 				int32_t button = mango_bar_decoration_button_at(bar, lx, ly);
 				switch (button) {
 				case MANGO_BAR_BUTTON_CLOSE:
-					kill_client(&(Arg){.tc = tc});
+					/* Polite close, like every other close button in the
+					 * decorations: the client gets to save its state. */
+					pending_kill_client(tc);
 					return true;
 				case MANGO_BAR_BUTTON_MINIMIZE:
 					minimize_window(&(Arg){.tc = tc});

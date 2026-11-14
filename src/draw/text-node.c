@@ -856,6 +856,8 @@ static bool bar_button_box(const MangoBarDecoration *node, int32_t index,
 	int32_t size = node->button_size;
 	if (size > node->target_height)
 		size = node->target_height;
+	if (size > node->target_width)
+		size = node->target_width;
 
 	int32_t strip = bar_buttons_strip_width(node);
 	int32_t margin = node->button_margin;
@@ -866,9 +868,23 @@ static bool bar_button_box(const MangoBarDecoration *node, int32_t index,
 		margin = space;
 
 	*out_size = size;
-	*out_x = node->buttons_left ? margin + index * (size + node->button_gap)
-								: node->target_width - margin - strip +
-									  index * (size + node->button_gap);
+	int32_t x = node->buttons_left ? margin + index * (size + node->button_gap)
+								   : node->target_width - margin - strip +
+										 index * (size + node->button_gap);
+
+	/* Keep every button inside the bar. A narrow window can leave the strip
+	 * wider than the bar, and the right-to-left formula then starts left of the
+	 * bar's own edge; bar_clip_buffer() clips to the monitor box rather than
+	 * the bar, so the button would paint over the border instead of being cut.
+	 */
+	int32_t room = node->target_width - size;
+	if (room < 0)
+		room = 0;
+	if (x > room)
+		x = room;
+	if (x < 0)
+		x = 0;
+	*out_x = x;
 	*out_y = (node->target_height - size) / 2;
 	return true;
 }

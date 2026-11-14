@@ -94,6 +94,9 @@ traffic lights on the left (close, minimize, maximize), with the window title
 centered in the remaining room. Dragging the bar moves the window. Hide it for
 specific windows with the `no_title_bar` window rule.
 
+The rounded corners come from scenefx. Built against plain wlroots the bar is
+still drawn and positioned, but its corners and the window's are square.
+
 | Setting | Default | Description |
 | :--- | :--- | :--- |
 | `title_bar_height` | `30` | Title bar height. Set to `0` to disable title bars. |
