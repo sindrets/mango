@@ -373,7 +373,14 @@ void client_send_close(Client *c) {
 	wlr_xdg_toplevel_send_close(c->surface.xdg->toplevel);
 }
 void client_set_border_color(Client *c, const float color[4]) {
-	scene_rect_set_color(c->border, color);
+	/* The ring is a scene rect, so it has no opacity: a fade has to reach it
+	 * through its colour's alpha. Scaling here, at the one place the colour is
+	 * ever written, is what keeps a focus or urgency recolour from cancelling
+	 * an opacity that is still animating. */
+	float faded[4];
+	memcpy(faded, color, sizeof(faded));
+	faded[3] *= c->opacity_animation.current_opacity;
+	scene_rect_set_color(c->border, faded);
 }
 
 void client_set_state_colors(Client *c, const float border_color[4],
@@ -2956,8 +2963,28 @@ void scene_buffer_apply_opacity(struct wlr_scene_buffer *buffer, int32_t sx,
 
 void client_set_opacity(Client *c, double opacity) {
 	opacity = CLAMP_FLOAT(opacity, 0.0f, 1.0f);
+
+	/* Recorded here rather than at the call sites, because the border ring has
+	 * no opacity of its own and client_set_border_color() derives it from this
+	 * value. Missing one call site would leave the ring stuck at the alpha of
+	 * whatever ran last. */
+	c->opacity_animation.current_opacity = opacity;
+
 	wlr_scene_node_for_each_buffer(&c->scene_surface->node,
 								   scene_buffer_apply_opacity, &opacity);
+
+	/* The title bar is not part of the surface subtree, and its background is a
+	 * scene rect, which has no opacity to set. Left alone it stayed fully
+	 * opaque through a fade-in while the surface faded up behind it. */
+	if (c->title_bar) {
+		mango_bar_decoration_set_opacity(c->title_bar, opacity);
+	}
+
+	/* The border ring is a scene rect too, and it is what a window reads as
+	 * while it fades in: left at full alpha it popped into view first and the
+	 * surface faded up inside it. client_set_border_color() applies the alpha
+	 * from here, so the recolouring and the fade cannot fight each other. */
+	client_set_border_color(c, c->opacity_animation.current_border_color);
 }
 
 void client_ensure_constraint(Client *c) {

@@ -82,6 +82,15 @@ typedef struct SnapshotMetadata {
 	struct wlr_fbox orig_src_box;
 	int32_t orig_x;
 	int32_t orig_y;
+	/* Premultiplied colour a snapshot rect was copied from. Rect nodes have no
+	 * opacity of their own, so a fade scales their colour, and it has to scale
+	 * the original rather than the faded result it wrote last tick. */
+	float orig_color[4];
+	/* Geometry a snapshot rect was copied from. A rect cannot be resized by a
+	 * transform, so a zoom has to rewrite its box, its corners and its hole
+	 * from these every tick. */
+	struct fx_corner_radii orig_corners;
+	struct clipped_region orig_clipped_region;
 	bool is_subsurface;
 	struct wl_listener destroy;
 } SnapshotMetadata;
@@ -96,8 +105,14 @@ bool scene_node_snapshot(struct wlr_scene_node *node, int32_t lx, int32_t ly,
 
 struct wlr_scene_tree *wlr_scene_tree_snapshot(struct wlr_scene_node *node,
 											   struct wlr_scene_tree *parent);
+/* `orig` is the frame the snapshot was taken at; a zoom needs it to map the
+ * snapshot's rect nodes from that frame into the animated one. */
 void scene_snapshot_clip_to_box(struct wlr_scene_tree *snapshot,
 								const struct wlr_box *bounds, bool scale,
-								int32_t width, int32_t height);
+								int32_t width, int32_t height,
+								const struct wlr_box *orig);
+/* Fades a snapshot tree by `opacity`, buffers through their own opacity and
+ * rects through their colour. */
+void scene_snapshot_fade(struct wlr_scene_node *node, double opacity);
 void request_fresh_all_monitors(void);
 #endif

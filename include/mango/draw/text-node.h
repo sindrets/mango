@@ -185,6 +185,11 @@ typedef struct MangoBarDecoration {
 	 * composed coverage lets the desktop show through a sub-pixel line. */
 	uint32_t snap_edges;
 
+	/* Fade factor the bar paints at, 0..1. The scene buffers carry their own
+	 * opacity, but the two rects behind them do not, so the bar keeps this to
+	 * scale its colours by instead. */
+	float opacity;
+
 } MangoBarDecoration;
 
 void mango_text_global_finish(void);
@@ -256,6 +261,10 @@ void mango_bar_decoration_set_snap_edges(MangoBarDecoration *node,
  * named here is drawn. A zero `width` or `height` means the whole bar. */
 void mango_bar_decoration_set_visible(MangoBarDecoration *node, int32_t x,
 									  int32_t y, int32_t width, int32_t height);
+
+/* Overall fade of the bar, 0..1. Applied to the rects' colours, since a scene
+ * rect has no opacity of its own; the buffers get theirs set separately. */
+void mango_bar_decoration_set_opacity(MangoBarDecoration *node, float opacity);
 void mango_jump_label_node_apply_config(MangoJumpLabel *node,
 										const DecorateDrawData *data);
 void mango_bar_decoration_apply_config(MangoBarDecoration *node,

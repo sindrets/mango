@@ -341,8 +341,8 @@ void fadeout_layer_animation_next_tick(LayerSurface *l) {
 
 	if (l->mon) {
 		bool scaling = layer_close_animation_type(l) == ANIM_TYPE_ZOOM;
-		scene_snapshot_clip_to_box(l->scene, &l->mon->m, scaling, width,
-								   height);
+		scene_snapshot_clip_to_box(l->scene, &l->mon->m, scaling, width, height,
+								   &l->animation.initial);
 	}
 
 	l->animation.current = (struct wlr_box){

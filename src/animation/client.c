@@ -1541,13 +1541,12 @@ void fadeout_client_animation_next_tick(Client *c) {
 	double opacity = MANGO_MAX(percent, 0);
 
 	if (config.animation_fade_out && !c->no_fade_out)
-		wlr_scene_node_for_each_buffer(&c->scene->node,
-									   scene_buffer_apply_opacity, &opacity);
+		scene_snapshot_fade(&c->scene->node, opacity);
 
 	if (c->mon) {
 		bool scaling = client_close_animation_type(c) == ANIM_TYPE_ZOOM;
-		scene_snapshot_clip_to_box(c->scene, &c->mon->m, scaling, width,
-								   height);
+		scene_snapshot_clip_to_box(c->scene, &c->mon->m, scaling, width, height,
+								   &c->animation.initial);
 	}
 
 	if (animation_passed >= 1.0) {

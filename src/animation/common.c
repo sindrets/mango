@@ -143,26 +143,53 @@ bool scene_node_snapshot(struct wlr_scene_node *node, int32_t lx, int32_t ly,
 		break;
 	}
 	case WLR_SCENE_NODE_RECT: {
-		// struct wlr_scene_rect *scene_rect = wlr_scene_rect_from_node(node);
+		struct wlr_scene_rect *scene_rect = wlr_scene_rect_from_node(node);
 
-		// struct wlr_scene_rect *snapshot_rect =
-		// 	wlr_scene_rect_create(snapshot_tree, scene_rect->width,
-		// 						  scene_rect->height, scene_rect->color);
-		// snapshot_rect->node.data = scene_rect->node.data;
-		// if (snapshot_rect == NULL) {
-		// 	return false;
-		// }
+		/* Rect nodes carry most of what a window is decorated with: the
+		 * border ring and the title bar's background. Leaving them out of
+		 * the snapshot made them vanish the instant a close animation
+		 * started, while the surface, the title and the traffic lights
+		 * faded out normally - the frame and its bar were simply gone and
+		 * only the buffer survived. */
+		struct wlr_scene_rect *snapshot_rect =
+			wlr_scene_rect_create(snapshot_tree, scene_rect->width,
+								  scene_rect->height, scene_rect->color);
+		if (snapshot_rect == NULL) {
+			return false;
+		}
 
-		// wlr_scene_rect_set_clipped_region(scene_rect,
-		// 								  snapshot_rect->clipped_region);
-		// wlr_scene_rect_set_backdrop_blur(scene_rect, false);
-		// wlr_scene_rect_set_backdrop_blur_optimized(
-		// 	scene_rect, snapshot_rect->backdrop_blur_optimized);
-		// wlr_scene_rect_set_corner_radius(
-		// 	scene_rect, snapshot_rect->corner_radius, snapshot_rect->corners);
-		// wlr_scene_rect_set_color(scene_rect, snapshot_rect->color);
+		/* The colour arrives premultiplied and wlr_scene_rect_create() takes
+		 * it as-is, so it is copied verbatim rather than through
+		 * scene_rect_set_color(), which would premultiply a second time. */
+		wlr_scene_rect_set_corner_radii(snapshot_rect, scene_rect->corners);
+		wlr_scene_rect_set_clipped_region(snapshot_rect,
+										  scene_rect->clipped_region);
+		wlr_scene_rect_set_snap_edges(snapshot_rect, scene_rect->snap_edges);
 
-		// snapshot_node = &snapshot_rect->node;
+		/* Rect nodes have no opacity of their own, so a fade scales their
+		 * colour. Keep the colour it started from: scaling the faded result
+		 * every tick would drive the bar and the ring to black instead of
+		 * letting them fade out. */
+		SnapshotMetadata *meta = calloc(1, sizeof(*meta));
+		if (meta == NULL) {
+			wlr_scene_node_destroy(&snapshot_rect->node);
+			return false;
+		}
+		meta->orig_width = scene_rect->width;
+		meta->orig_height = scene_rect->height;
+		/* The snapshot rect is positioned at (lx, ly), so these are the box
+		 * origin a zoom has to scale from. */
+		meta->orig_x = lx;
+		meta->orig_y = ly;
+		memcpy(meta->orig_color, scene_rect->color, sizeof(meta->orig_color));
+		meta->orig_corners = scene_rect->corners;
+		meta->orig_clipped_region = scene_rect->clipped_region;
+		meta->type = Snapshot;
+		meta->destroy.notify = handle_snapshot_meta_destroy;
+		wl_signal_add(&snapshot_rect->node.events.destroy, &meta->destroy);
+		mango_scene_node_set(&snapshot_rect->node, Snapshot, meta);
+
+		snapshot_node = &snapshot_rect->node;
 		break;
 	}
 	case WLR_SCENE_NODE_BUFFER: {
@@ -348,6 +375,12 @@ struct SnapshotClipData {
 	int32_t width;
 	int32_t height;
 	bool scale;
+	/* Frame the snapshot was taken at. A zoom shrinks the frame's buffers by
+	 * rewriting their destination size, but a rect is its box: it has to be
+	 * shrunk by rewriting the box, so the rects are mapped from this frame into
+	 * the animated one. */
+	int32_t frame_width;
+	int32_t frame_height;
 };
 
 static void scene_snapshot_enable_buffers(struct wlr_scene_node *node) {
@@ -466,9 +499,77 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 	wlr_scene_buffer_set_source_box(buffer, &clipped_src);
 }
 
+/*
+ * Maps every snapshot rect from the frame it was taken at into the animated
+ * one. Buffers get the same treatment through their destination size, but a
+ * rect has no such size to rewrite: its box, its corner radii and the hole it
+ * cuts all have to be recomputed. Everything is derived from the geometry
+ * recorded at snapshot time, so repeated ticks cannot compound.
+ */
+static void scene_snapshot_scale_rects(struct wlr_scene_node *node,
+									   const struct SnapshotClipData *clip) {
+	if (node->type == WLR_SCENE_NODE_RECT) {
+		MangoSceneNode *payload = node->data;
+		if (!payload || payload->type != Snapshot || !payload->owner) {
+			return;
+		}
+
+		SnapshotMetadata *meta = payload->owner;
+		if (clip->frame_width <= 0 || clip->frame_height <= 0) {
+			return;
+		}
+
+		double scale_x = (double)clip->width / (double)clip->frame_width;
+		double scale_y = (double)clip->height / (double)clip->frame_height;
+		/* The corners are a square box in each corner, so they scale by the
+		 * smaller of the two factors to stay inside the box. */
+		double scale = MANGO_MIN(scale_x, scale_y);
+
+		/* Buffers are redrawn into the animated frame box anchored at the
+		 * snapshot's origin, so both the rect's own origin and its extent
+		 * scale the same way. */
+		struct wlr_scene_rect *rect = wlr_scene_rect_from_node(node);
+		wlr_scene_node_set_position(node, (int32_t)(meta->orig_x * scale_x),
+									(int32_t)(meta->orig_y * scale_y));
+		wlr_scene_rect_set_size(rect, (int32_t)(meta->orig_width * scale_x),
+								(int32_t)(meta->orig_height * scale_y));
+
+		struct fx_corner_radii corners = meta->orig_corners;
+		corners.top_left = (uint16_t)(corners.top_left * scale);
+		corners.top_right = (uint16_t)(corners.top_right * scale);
+		corners.bottom_right = (uint16_t)(corners.bottom_right * scale);
+		corners.bottom_left = (uint16_t)(corners.bottom_left * scale);
+		wlr_scene_rect_set_corner_radii(rect, corners);
+
+		struct clipped_region hole = meta->orig_clipped_region;
+		hole.area.x = (int32_t)(hole.area.x * scale_x);
+		hole.area.y = (int32_t)(hole.area.y * scale_y);
+		hole.area.width = (int32_t)(hole.area.width * scale_x);
+		hole.area.height = (int32_t)(hole.area.height * scale_y);
+		hole.corners.top_left = (uint16_t)(hole.corners.top_left * scale);
+		hole.corners.top_right = (uint16_t)(hole.corners.top_right * scale);
+		hole.corners.bottom_right =
+			(uint16_t)(hole.corners.bottom_right * scale);
+		hole.corners.bottom_left = (uint16_t)(hole.corners.bottom_left * scale);
+		wlr_scene_rect_set_clipped_region(rect, hole);
+		return;
+	}
+
+	if (node->type != WLR_SCENE_NODE_TREE) {
+		return;
+	}
+
+	struct wlr_scene_tree *tree = wlr_scene_tree_from_node(node);
+	struct wlr_scene_node *child;
+	wl_list_for_each(child, &tree->children, link) {
+		scene_snapshot_scale_rects(child, clip);
+	}
+}
+
 void scene_snapshot_clip_to_box(struct wlr_scene_tree *snapshot,
 								const struct wlr_box *bounds, bool scale,
-								int32_t width, int32_t height) {
+								int32_t width, int32_t height,
+								const struct wlr_box *orig) {
 	if (!snapshot || !bounds || bounds->width <= 0 || bounds->height <= 0) {
 		return;
 	}
@@ -478,12 +579,60 @@ void scene_snapshot_clip_to_box(struct wlr_scene_tree *snapshot,
 		.width = width,
 		.height = height,
 		.scale = scale,
+		.frame_width = orig ? orig->width : width,
+		.frame_height = orig ? orig->height : height,
 	};
 	scene_snapshot_enable_buffers(&snapshot->node);
 	wlr_scene_node_for_each_buffer(&snapshot->node, scene_snapshot_clip_buffer,
 								   &clip);
+	if (scale) {
+		scene_snapshot_scale_rects(&snapshot->node, &clip);
+	}
 }
 
+static void scene_rect_fade(struct wlr_scene_node *node, double opacity) {
+	if (node->type == WLR_SCENE_NODE_RECT) {
+		MangoSceneNode *payload = node->data;
+		if (!payload || payload->type != Snapshot || !payload->owner) {
+			return;
+		}
+
+		SnapshotMetadata *meta = payload->owner;
+		float faded[4] = {
+			(float)(meta->orig_color[0] * opacity),
+			(float)(meta->orig_color[1] * opacity),
+			(float)(meta->orig_color[2] * opacity),
+			(float)(meta->orig_color[3] * opacity),
+		};
+		wlr_scene_rect_set_color(wlr_scene_rect_from_node(node), faded);
+		return;
+	}
+
+	if (node->type != WLR_SCENE_NODE_TREE) {
+		return;
+	}
+
+	struct wlr_scene_tree *tree = wlr_scene_tree_from_node(node);
+	struct wlr_scene_node *child;
+	wl_list_for_each(child, &tree->children, link) {
+		scene_rect_fade(child, opacity);
+	}
+}
+
+/*
+ * Fades a snapshot by `opacity`: buffers through their own opacity, rects
+ * through their colour. The plain wlr_scene_node_for_each_buffer() walk used
+ * before this only ever saw buffers, so the border ring and the title bar's
+ * background stayed fully opaque for a whole close animation while everything
+ * around them faded out.
+ */
+void scene_snapshot_fade(struct wlr_scene_node *node, double opacity) {
+	if (!node) {
+		return;
+	}
+	wlr_scene_node_for_each_buffer(node, scene_buffer_apply_opacity, &opacity);
+	scene_rect_fade(node, opacity);
+}
 void request_fresh_all_monitors(void) {
 	Monitor *m = NULL;
 	wl_list_for_each(m, &server.monitors, link) {

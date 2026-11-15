@@ -172,6 +172,18 @@ static struct fx_corner_radii inner_corners_of(struct fx_corner_radii outer,
 	return inner;
 }
 
+/* The bar's rects have no opacity of their own, so a fade scales the colour's
+ * alpha. The colour is premultiplied by rect_apply() afterwards, so only the
+ * alpha is touched here. */
+static const float *bar_faded_color(const MangoBarDecoration *node,
+									const float color[4], float out[4]) {
+	memcpy(out, color, 4 * sizeof(float));
+	if (node->opacity < 1.0f) {
+		out[3] *= node->opacity;
+	}
+	return out;
+}
+
 static void rect_apply_border(struct wlr_scene_rect *rect, const float color[4],
 							  struct fx_corner_radii outer,
 							  struct fx_corner_radii inner, int32_t border,
@@ -781,6 +793,7 @@ MangoBarDecoration *mango_bar_decoration_create(void *cdata, uint32_t type,
 	mangobar->node_data = cdata;
 
 	mangobar->cached_scale = -1.0f;
+	mangobar->opacity = 1.0f;
 
 	mangobar->close_color[0] = 0.68f;
 	mangobar->close_color[1] = 0.25f;
@@ -915,10 +928,9 @@ static void bar_button_render(MangoBarDecoration *node, int32_t index,
 	 * buttons and no glyph. The traffic lights only mean something on the
 	 * window being worked in, and keeping them coloured on every other window
 	 * turns the screen into a row of stop signs. */
-	const float *circle =
-		!node->focused
-			? bar_button_unfocused_color
-			: (hover ? button->hover_color : button->color);
+	const float *circle = !node->focused
+							  ? bar_button_unfocused_color
+							  : (hover ? button->hover_color : button->color);
 	cairo_set_source_rgba(cr, circle[0], circle[1], circle[2], circle[3]);
 	cairo_arc(cr, center, center, center, 0, 2 * 3.14159265358979323846);
 	cairo_fill(cr);
@@ -1072,6 +1084,35 @@ void mango_bar_decoration_set_snap_edges(MangoBarDecoration *node,
 	node->snap_edges = edges;
 }
 
+void mango_bar_decoration_set_opacity(MangoBarDecoration *node, float opacity) {
+	if (!node) {
+		return;
+	}
+
+	if (opacity < 0.0f) {
+		opacity = 0.0f;
+	} else if (opacity > 1.0f) {
+		opacity = 1.0f;
+	}
+	if (node->opacity == opacity) {
+		return;
+	}
+	node->opacity = opacity;
+
+	/* Buffers carry their own opacity; the rects behind them are repainted by
+	 * the geometry pass, which reads node->opacity. */
+	wlr_scene_buffer_set_opacity(node->scene_buffer, opacity);
+	wlr_scene_buffer_set_opacity(node->close_buffer, opacity);
+	for (int32_t i = 0; i < MANGO_BAR_BUTTON_COUNT; i++) {
+		if (node->buttons[i].scene_buffer) {
+			wlr_scene_buffer_set_opacity(node->buttons[i].scene_buffer,
+										 opacity);
+		}
+	}
+
+	bar_decoration_apply_geometry(node);
+}
+
 void mango_bar_decoration_set_visible(MangoBarDecoration *node, int32_t x,
 									  int32_t y, int32_t width,
 									  int32_t height) {
@@ -1189,21 +1230,25 @@ static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 	}
 	struct fx_corner_radii inner = inner_corners_of(outer, border);
 
+	const float *bg_color =
+		node->focused ? node->focus_bg_color : node->bg_color;
+	float faded_border[4];
+	float faded_bg[4];
+	bar_faded_color(node, node->border_color, faded_border);
+	bar_faded_color(node, bg_color, faded_bg);
+
 	if (border > 0) {
-		rect_apply_border(node->border, node->border_color, outer, inner,
-						  border, box_x, box_y, box_w, box_h);
-		rect_apply(node->bg,
-				   node->focused ? node->focus_bg_color : node->bg_color, inner,
-				   box_x + border, box_y + border, inner_w, inner_h);
+		rect_apply_border(node->border, faded_border, outer, inner, border,
+						  box_x, box_y, box_w, box_h);
+		rect_apply(node->bg, faded_bg, inner, box_x + border, box_y + border,
+				   inner_w, inner_h);
 	} else {
 		/* No outline of its own: a title bar's border is the window frame's,
 		 * which is drawn outside and around the whole frame. Painting the
 		 * border rect anyway would put its colour under the background, where
 		 * it shows through a translucent fill. */
 		wlr_scene_rect_set_size(node->border, 0, 0);
-		rect_apply(node->bg,
-				   node->focused ? node->focus_bg_color : node->bg_color, outer,
-				   box_x, box_y, box_w, box_h);
+		rect_apply(node->bg, faded_bg, outer, box_x, box_y, box_w, box_h);
 	}
 #if TEXT_NODE_CORNER_RADIUS
 	/* Only the outermost rect may snap: an inset background snapping its own
