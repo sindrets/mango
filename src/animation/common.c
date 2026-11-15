@@ -517,6 +517,20 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 	wlr_scene_node_set_position(&buffer->node, left, top);
 	wlr_scene_buffer_set_dest_size(buffer, visible.width, visible.height);
 
+	if (left != 0 || top != 0) {
+		/* The clip is the hole the surface leaves for the border's inner arc,
+		 * and it is expressed in the buffer's own box. Cropping the buffer
+		 * moves that box, so the hole has to move with it; left where it was,
+		 * it punches a rectangle out of the wrong part of the surface and the
+		 * desktop shows through between the content and the border. */
+		struct clipped_region crop = buffer->clipped_region;
+		if (crop.area.width > 0 && crop.area.height > 0) {
+			crop.area.x -= left;
+			crop.area.y -= top;
+			wlr_scene_buffer_set_clipped_region(buffer, crop);
+		}
+	}
+
 	/* A side this buffer dropped because it left the monitor has no corner
 	 * left to round, the same way the title bar squares off the side that
 	 * slid off. Without this, a window sliding out of view rounds off against
@@ -723,11 +737,19 @@ void scene_snapshot_clip_to_box(struct wlr_scene_tree *snapshot,
 			orig ? *orig : (struct wlr_box){.width = width, .height = height},
 	};
 	scene_snapshot_enable_buffers(&snapshot->node);
-	wlr_scene_node_for_each_buffer(&snapshot->node, scene_snapshot_clip_buffer,
-								   &clip);
+
+	/* The rects and the buffer wrappers carry the snapshot's own coordinates,
+	 * and the buffer walk below reads them to work out how much of each buffer
+	 * a monitor still covers. Moving them first is what makes that box agree
+	 * with where the buffers are this tick. Done afterwards, every buffer is
+	 * clipped against the position it had on the previous frame, which leaves
+	 * a gap where the surface has not caught up with the border and holds the
+	 * bar's off-screen part for one tick too long. */
 	if (scale) {
 		scene_snapshot_scale_rects(&snapshot->node, &clip);
 	}
+	wlr_scene_node_for_each_buffer(&snapshot->node, scene_snapshot_clip_buffer,
+								   &clip);
 }
 
 static void scene_rect_fade(struct wlr_scene_node *node, double opacity) {

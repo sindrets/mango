@@ -1645,6 +1645,14 @@ void init_fadeout_client(Client *c) {
 	c->snapshot_temp_visible = true;
 	client_update_visibility(c);
 	client_set_border_color(c, config.bordercolor);
+	/* A bar reaching past the monitor paints only the part that has an output
+	 * under it, so snapshotting it as it stands would take a cropped bar into
+	 * the animation: the missing part stays transparent for the whole close,
+	 * and as the frame shrinks towards its centre that gap becomes visible
+	 * inside the frame. Handing over a zero box means "the whole bar". */
+	if (c->title_bar) {
+		mango_bar_decoration_set_visible(c->title_bar, 0, 0, 0, 0);
+	}
 	if (c->ov_card_tree) {
 		/*
 		 * Closing in overview: the fadeout snapshot is based on the
