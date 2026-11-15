@@ -516,6 +516,32 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 	wlr_scene_node_set_position(&buffer->node, left, top);
 	wlr_scene_buffer_set_dest_size(buffer, visible.width, visible.height);
 
+	/* A side this buffer dropped because it left the monitor has no corner
+	 * left to round, the same way the title bar squares off the side that
+	 * slid off. Without this, a window sliding out of view rounds off against
+	 * the screen edge instead of travelling past it. */
+	if (left != 0 || top != 0 || visible.width != dest_width ||
+		visible.height != dest_height) {
+		struct fx_corner_radii corners = buffer->corners;
+		if (top != 0) {
+			corners.top_left = 0;
+			corners.top_right = 0;
+		}
+		if (left != 0) {
+			corners.top_left = 0;
+			corners.bottom_left = 0;
+		}
+		if (top + visible.height != dest_height) {
+			corners.bottom_left = 0;
+			corners.bottom_right = 0;
+		}
+		if (left + visible.width != dest_width) {
+			corners.top_right = 0;
+			corners.bottom_right = 0;
+		}
+		wlr_scene_buffer_set_corner_radii(buffer, corners);
+	}
+
 	struct wlr_fbox src_box = meta->orig_src_box;
 	int32_t src_width = buffer->WLR_PRIVATE.buffer_width;
 	int32_t src_height = buffer->WLR_PRIVATE.buffer_height;
