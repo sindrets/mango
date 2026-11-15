@@ -5,6 +5,7 @@
 #include "mango/config/parse.h"
 #include "mango/manage/client.h"
 #include "mango/manage/monitor.h"
+#include <math.h>
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_output.h>
 #include <wlr/types/wlr_subcompositor.h>
@@ -213,8 +214,12 @@ bool scene_node_snapshot(struct wlr_scene_node *node, int32_t lx, int32_t ly,
 		meta->orig_width = scene_buffer->dst_width;
 		meta->orig_height = scene_buffer->dst_height;
 		meta->orig_src_box = scene_buffer->src_box;
-		meta->orig_x = 0;
-		meta->orig_y = 0;
+		/* The wrapper carries the buffer's absolute place in the snapshot, and
+		 * the buffer itself sits at its origin. Recording the wrapper's
+		 * position here is what lets a zoom move it with the frame; the buffer
+		 * keeps whatever offset the clipping needs on top of that. */
+		meta->orig_x = lx;
+		meta->orig_y = ly;
 		meta->type = Snapshot;
 
 		struct wlr_scene_surface *scene_surface =
@@ -411,16 +416,23 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 	}
 
 	SnapshotMetadata *meta = snapshot_node->owner;
-	int32_t child_x = buffer->node.x;
-	int32_t child_y = buffer->node.y;
-	int32_t base_x = sx - child_x + meta->orig_x;
-	int32_t base_y = sy - child_y + meta->orig_y;
+	/* sx/sy are the buffer's place in the snapshot already: the wrapper node
+	 * holds meta->orig_x/orig_y and the buffer only holds the offset the
+	 * clipping gave it last tick, which is not part of the original layout. */
+	int32_t base_x = sx;
+	int32_t base_y = sy;
 	int32_t dest_width = meta->orig_width;
 	int32_t dest_height = meta->orig_height;
 
-	if (clip->scale) {
-		dest_width = clip->width;
-		dest_height = clip->height;
+	/* A zoom scales the whole frame, so every buffer shrinks by the frame's
+	 * ratio, not to the frame's size: a window also holds the title text and
+	 * the traffic lights, and stretching each of them to the frame box made the
+	 * surface fill the bar's rows and spill past the border's bottom edge. */
+	if (clip->scale && clip->frame_width > 0 && clip->frame_height > 0) {
+		dest_width = (int32_t)((int64_t)meta->orig_width * clip->width /
+							   clip->frame_width);
+		dest_height = (int32_t)((int64_t)meta->orig_height * clip->height /
+								clip->frame_height);
 	}
 	if (dest_width <= 0 || dest_height <= 0) {
 		dest_width = buffer->WLR_PRIVATE.buffer_width;
@@ -432,7 +444,7 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 		}
 	}
 
-	wlr_scene_node_set_position(&buffer->node, meta->orig_x, meta->orig_y);
+	wlr_scene_node_set_position(&buffer->node, 0, 0);
 	if (dest_width <= 0 || dest_height <= 0) {
 		wlr_scene_node_set_enabled(&buffer->node, false);
 		return;
@@ -453,8 +465,7 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 	wlr_scene_node_set_enabled(&buffer->node, true);
 	int32_t left = visible.x - buffer_box.x;
 	int32_t top = visible.y - buffer_box.y;
-	wlr_scene_node_set_position(&buffer->node, meta->orig_x + left,
-								meta->orig_y + top);
+	wlr_scene_node_set_position(&buffer->node, left, top);
 	wlr_scene_buffer_set_dest_size(buffer, visible.width, visible.height);
 
 	struct wlr_fbox src_box = meta->orig_src_box;
@@ -525,9 +536,12 @@ static void scene_snapshot_scale_rects(struct wlr_scene_node *node,
 		 * smaller of the two factors to stay inside the box. */
 		double scale = MANGO_MIN(scale_x, scale_y);
 
-		/* Buffers are redrawn into the animated frame box anchored at the
-		 * snapshot's origin, so both the rect's own origin and its extent
-		 * scale the same way. */
+		/* Every snapshot child sits at its snapshot-absolute place directly
+		 * under the snapshot tree, and the tree itself only translates: a zoom
+		 * never scales the space its children live in. So each child has to
+		 * move towards the frame's origin by the same factor its extent
+		 * shrinks by, or a window would keep the layout's proportions and the
+		 * surface would drift out from under the shrinking border. */
 		struct wlr_scene_rect *rect = wlr_scene_rect_from_node(node);
 		wlr_scene_node_set_position(node, (int32_t)(meta->orig_x * scale_x),
 									(int32_t)(meta->orig_y * scale_y));
@@ -541,11 +555,36 @@ static void scene_snapshot_scale_rects(struct wlr_scene_node *node,
 		corners.bottom_left = (uint16_t)(corners.bottom_left * scale);
 		wlr_scene_rect_set_corner_radii(rect, corners);
 
+		/* The hole is what leaves the border visible, and the border is only a
+		 * pixel or two wide to start with. Truncating its inset to zero at
+		 * any zoom factor below 1 would cut the border away completely on the
+		 * sides the hole then reaches, so the inset is rounded and kept at a
+		 * pixel wherever the original had one, and the hole is sized from the
+		 * shrunk box rather than from its own scaled extent. */
+		/* Only the border ring cuts a hole; the title bar's background is a
+		 * plain rect, and giving it a hole that covers the whole box would
+		 * erase it. The ring's inset is also only a pixel or two to begin
+		 * with, so truncating it to zero at any factor below 1 would cut the
+		 * border away on those sides: it is rounded and kept at a pixel
+		 * wherever the original had one, and the hole is sized from the shrunk
+		 * box rather than from its own scaled extent. */
 		struct clipped_region hole = meta->orig_clipped_region;
-		hole.area.x = (int32_t)(hole.area.x * scale_x);
-		hole.area.y = (int32_t)(hole.area.y * scale_y);
-		hole.area.width = (int32_t)(hole.area.width * scale_x);
-		hole.area.height = (int32_t)(hole.area.height * scale_y);
+		if (hole.area.width > 0 && hole.area.height > 0) {
+			int32_t inset_x = hole.area.x > 0
+								  ? MANGO_MAX(1, lround(hole.area.x * scale_x))
+								  : 0;
+			int32_t inset_y = hole.area.y > 0
+								  ? MANGO_MAX(1, lround(hole.area.y * scale_y))
+								  : 0;
+			int32_t hole_w =
+				(int32_t)(meta->orig_width * scale_x) - 2 * inset_x;
+			int32_t hole_h =
+				(int32_t)(meta->orig_height * scale_y) - 2 * inset_y;
+			hole.area.x = inset_x;
+			hole.area.y = inset_y;
+			hole.area.width = hole_w > 0 ? hole_w : 0;
+			hole.area.height = hole_h > 0 ? hole_h : 0;
+		}
 		hole.corners.top_left = (uint16_t)(hole.corners.top_left * scale);
 		hole.corners.top_right = (uint16_t)(hole.corners.top_right * scale);
 		hole.corners.bottom_right =
@@ -557,6 +596,18 @@ static void scene_snapshot_scale_rects(struct wlr_scene_node *node,
 
 	if (node->type != WLR_SCENE_NODE_TREE) {
 		return;
+	}
+
+	/* A snapshot buffer's wrapper is a tree node that carries the buffer's
+	 * snapshot-absolute origin, so it moves exactly like a rect. */
+	MangoSceneNode *payload = node->data;
+	if (payload && payload->type == Snapshot && payload->owner &&
+		clip->frame_width > 0 && clip->frame_height > 0) {
+		SnapshotMetadata *meta = payload->owner;
+		double scale_x = (double)clip->width / (double)clip->frame_width;
+		double scale_y = (double)clip->height / (double)clip->frame_height;
+		wlr_scene_node_set_position(node, (int32_t)(meta->orig_x * scale_x),
+									(int32_t)(meta->orig_y * scale_y));
 	}
 
 	struct wlr_scene_tree *tree = wlr_scene_tree_from_node(node);
