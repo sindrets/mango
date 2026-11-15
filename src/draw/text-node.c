@@ -77,16 +77,9 @@ static const struct wlr_buffer_impl text_buffer_impl = {
 	.end_data_ptr_access = text_buffer_end_data_ptr_access,
 };
 
-/* Clamps `corners` so that no two corners sharing an edge overlap: a radius
- * longer than the edge it runs along would put its curve past the neighbouring
- * corner and fold the shape over itself.
- *
- * Only a pair where both corners have a radius can collide. A corner with
- * radius 0 has no curve, so the other one may run the full length of the edge.
- * That matters for the title bar: its top corners inherit the window radius,
- * which is routinely larger than the bar is tall, and shortening them to half
- * the bar height would give the bar a curve of its own instead of the frame's.
- */
+/* Scales neighbouring corner radii down so both arcs fit along their shared
+ * edge. A radius-0 corner has no arc, so its neighbour may take the full
+ * edge. */
 static struct fx_corner_radii clamp_corners(struct fx_corner_radii corners,
 											int32_t width, int32_t height) {
 	struct {
@@ -150,9 +143,8 @@ static void rect_apply(struct wlr_scene_rect *rect, const float color[4],
 	wlr_scene_rect_set_size(rect, width, height);
 }
 
-// Radius of the inner edge of a border. A rect inset by `border` and drawn with
-// the outer radius puts its arc on top of the border's outer arc, so the border
-// has no width at all along the curve and the background shows through it.
+// Inner-edge radius of a border: drawing the inset rect with the outer radius
+// would cover the border's width along the curve.
 static int32_t inner_corner_radius(int32_t outer_radius, int32_t border) {
 	int32_t inner = outer_radius - border;
 	return inner > 0 ? inner : 0;
@@ -165,16 +157,13 @@ static struct fx_corner_radii inner_corners_of(struct fx_corner_radii outer,
 						 inner_corner_radius(outer.top_right, border),
 						 inner_corner_radius(outer.bottom_right, border),
 						 inner_corner_radius(outer.bottom_left, border));
-	/* The inner edge is the same curve, just smaller, so it keeps the exponent.
-	 * Dropping it would draw the background as a circle inside a superellipse
-	 * border and let the border color bleed through the corner. */
+	/* The inner edge is the same curve, so it keeps the exponent. */
 	inner.exponent = outer.exponent;
 	return inner;
 }
 
-/* The bar's rects have no opacity of their own, so a fade scales the colour's
- * alpha. The colour is premultiplied by rect_apply() afterwards, so only the
- * alpha is touched here. */
+/* A fade scales only the alpha: rect_apply() premultiplies the colour
+ * afterwards. */
 static const float *bar_faded_color(const MangoBarDecoration *node,
 									const float color[4], float out[4]) {
 	memcpy(out, color, 4 * sizeof(float));
@@ -885,11 +874,8 @@ static bool bar_button_box(const MangoBarDecoration *node, int32_t index,
 								   : node->target_width - margin - strip +
 										 index * (size + node->button_gap);
 
-	/* Keep every button inside the bar. A narrow window can leave the strip
-	 * wider than the bar, and the right-to-left formula then starts left of the
-	 * bar's own edge; bar_clip_buffer() clips to the monitor box rather than
-	 * the bar, so the button would paint over the border instead of being cut.
-	 */
+	/* Clamp inside the bar: on a narrow bar the button strip can be wider
+	 * than the bar itself. */
 	int32_t room = node->target_width - size;
 	if (room < 0)
 		room = 0;
@@ -924,10 +910,6 @@ static void bar_button_render(MangoBarDecoration *node, int32_t index,
 	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
 
 	double center = pixel / 2.0;
-	/* An unfocused window shows flat grey discs: one colour for all three
-	 * buttons and no glyph. The traffic lights only mean something on the
-	 * window being worked in, and keeping them coloured on every other window
-	 * turns the screen into a row of stop signs. */
 	const float *circle = !node->focused
 							  ? bar_button_unfocused_color
 							  : (hover ? button->hover_color : button->color);
@@ -1031,9 +1013,8 @@ static void bar_buttons_sync(MangoBarDecoration *node) {
 	}
 }
 
-/* Left/right inset of the title text inside the bar. The traffic lights take
- * the same room on both sides, so the title stays centered in the bar instead
- * of drifting away from whichever edge holds the buttons. */
+/* Side inset of the bar's contents; reserves room for the button strip so
+ * the title stays centered. */
 static int32_t bar_decoration_side_inset(const MangoBarDecoration *node) {
 	int32_t inset = node->border_width > 0 ? node->border_width : 0;
 	inset += node->padding_x;
@@ -1099,8 +1080,7 @@ void mango_bar_decoration_set_opacity(MangoBarDecoration *node, float opacity) {
 	}
 	node->opacity = opacity;
 
-	/* Buffers carry their own opacity; the rects behind them are repainted by
-	 * the geometry pass, which reads node->opacity. */
+	/* Buffers carry their own opacity; the rects get theirs via the geometry pass. */
 	wlr_scene_buffer_set_opacity(node->scene_buffer, opacity);
 	wlr_scene_buffer_set_opacity(node->close_buffer, opacity);
 	for (int32_t i = 0; i < MANGO_BAR_BUTTON_COUNT; i++) {
@@ -1134,11 +1114,7 @@ void mango_bar_decoration_set_visible(MangoBarDecoration *node, int32_t x,
 	bar_decoration_apply_geometry(node);
 }
 
-/* Keep only the part of `buffer` the bar still has on screen. The bar's
- * contents are laid out against its full width so that they travel with the
- * window, which means a buffer can end up partly or wholly off the monitor;
- * this is what stops it painting there. A buffer keeps what is inside its clip
- * rather than cutting a hole, which is what makes it usable here. */
+/* Clip `buffer` to the part of the bar that is still on screen. */
 static void bar_clip_buffer(MangoBarDecoration *node,
 							struct wlr_scene_buffer *buffer) {
 #if TEXT_NODE_CORNER_RADIUS
@@ -1153,14 +1129,10 @@ static void bar_clip_buffer(MangoBarDecoration *node,
 			.width = visible->width,
 			.height = visible->height,
 		};
-		/* Leave an untouched buffer alone: a clip sends it down the shader
-		 * path, and most frames have nothing to cut. This is the common case
-		 * for a bar that is not leaving a monitor, so it is worth the test. */
 		struct wlr_box whole = {0, 0, buffer->dst_width, buffer->dst_height};
 		if (!wlr_box_contains_box(&box, &whole)) {
 			clip.area = box;
-			/* Hard: the bar's own rects already stop at this edge, so there
-			 * is no shape underneath for a fade to blend into. */
+			/* Hard clip: there is nothing under the edge to fade into. */
 			clip.soft = false;
 		}
 	}
@@ -1190,12 +1162,8 @@ static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 		return;
 	}
 
-	/* `width`/`height` above are the bar's full logical size, which is what the
-	 * title and the buttons are laid out against: that keeps them travelling
-	 * with the window instead of re-flowing as it moves. `visible` is how much
-	 * of that box still has a monitor under it, so only that much gets painted.
-	 * Keeping the two apart is the whole point - sizing the contents to the
-	 * part on screen is what made the bar shrink instead of slide. */
+	/* Contents are laid out against the bar's full size so they slide with the
+	 * window; only the visible part is painted. */
 	int32_t box_x = 0, box_y = 0, box_w = width, box_h = height;
 	if (node->visible.width > 0 && node->visible.height > 0) {
 		box_x = node->visible.x;
@@ -1243,16 +1211,13 @@ static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 		rect_apply(node->bg, faded_bg, inner, box_x + border, box_y + border,
 				   inner_w, inner_h);
 	} else {
-		/* No outline of its own: a title bar's border is the window frame's,
-		 * which is drawn outside and around the whole frame. Painting the
-		 * border rect anyway would put its colour under the background, where
-		 * it shows through a translucent fill. */
+		/* No border rect: the window frame's border surrounds the bar. */
 		wlr_scene_rect_set_size(node->border, 0, 0);
 		rect_apply(node->bg, faded_bg, outer, box_x, box_y, box_w, box_h);
 	}
 #if TEXT_NODE_CORNER_RADIUS
-	/* Only the outermost rect may snap: an inset background snapping its own
-	 * edge would push it out over the border it sits inside. */
+	/* Only the outermost rect may snap; snapping an inset one would push it
+	 * over its border. */
 	if (border > 0)
 		wlr_scene_rect_set_snap_edges(node->border, node->snap_edges);
 	wlr_scene_rect_set_snap_edges(node->bg, border == 0 ? node->snap_edges
@@ -1422,11 +1387,9 @@ void mango_bar_decoration_update(MangoBarDecoration *node, const char *text,
 	}
 	node->last_scale = scale;
 
-	/*
-	 * Keep the pending text current while hidden, but do not rasterize it.
-	 * Invalidating cached_text makes the next visible set_size/update render
-	 * with the final target geometry instead of a zero-width hidden layout.
-	 */
+	/* While hidden, only keep the pending text current (no rasterizing):
+	 * invalidating `cached_text` makes the next visible render use the final
+	 * geometry, not a zero-width one. */
 	if (!node->scene->node.enabled) {
 		g_free(node->cached_text);
 		node->cached_text = NULL;

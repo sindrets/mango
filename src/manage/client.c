@@ -373,10 +373,9 @@ void client_send_close(Client *c) {
 	wlr_xdg_toplevel_send_close(c->surface.xdg->toplevel);
 }
 void client_set_border_color(Client *c, const float color[4]) {
-	/* The ring is a scene rect, so it has no opacity: a fade has to reach it
-	 * through its colour's alpha. Scaling here, at the one place the colour is
-	 * ever written, is what keeps a focus or urgency recolour from cancelling
-	 * an opacity that is still animating. */
+	/* The ring is a scene rect with no opacity: fades reach it through the alpha
+	 * of its colour, so scale here - at the one place the colour is written -
+	 * so a recolor cannot cancel an animating fade. */
 	float faded[4];
 	memcpy(faded, color, sizeof(faded));
 	faded[3] *= c->opacity_animation.current_opacity;
@@ -387,13 +386,9 @@ void client_set_state_colors(Client *c, const float border_color[4],
 							 const float dim_color[4]) {
 	client_set_border_color(c, border_color);
 
-	/* The title bar's focus decoration belongs here, next to the border colour
-	 * it has to agree with. Every focus change, urgency change and monitor or
-	 * tag move that recolours the border goes through this function, so driving
-	 * the bar from the same place is what keeps the two in step. Updating it
-	 * only where the bar happens to be redrawn - client_draw_title_bar() - left
-	 * it changing whenever the window was redrawn for an unrelated reason,
-	 * which read as arbitrary. */
+	/* The bar's focus decoration must agree with the border colour; every path
+	 * that recolours the border goes through here, so drive the bar from the
+	 * same place. */
 	client_update_title_bar_focus(c);
 
 	if (c->dim_node) {
@@ -499,12 +494,10 @@ void client_update_xwayland_clip(Client *c, struct wlr_box *clip) {
 		c->geom.height - 2 * (int32_t)c->bw - client_title_bar_height(c);
 
 	/*
-	 * Whole window visible: sample it exactly as the scene draws it, so a
-	 * fractional scale cannot stretch the buffer by one pixel. When the scene
-	 * draws the window one pixel wider or taller than the buffer, nearest
-	 * filtering repeats a pixel instead of interpolating it (sampling outside
-	 * the buffer is not allowed). A buffer that did not keep up with the window
-	 * (mid-resize) is scaled instead.
+	 * Whole window visible: sample it exactly as the scene draws it - one pixel
+	 * off and nearest filtering repeats a pixel instead of interpolating it
+	 * (sampling outside the buffer is not allowed). Buffers that did not keep up
+	 * mid-resize are scaled instead.
 	 */
 	struct wlr_fbox src;
 	bool nearest = false;
@@ -2964,26 +2957,22 @@ void scene_buffer_apply_opacity(struct wlr_scene_buffer *buffer, int32_t sx,
 void client_set_opacity(Client *c, double opacity) {
 	opacity = CLAMP_FLOAT(opacity, 0.0f, 1.0f);
 
-	/* Recorded here rather than at the call sites, because the border ring has
-	 * no opacity of its own and client_set_border_color() derives it from this
-	 * value. Missing one call site would leave the ring stuck at the alpha of
-	 * whatever ran last. */
+	/* Recorded here rather than at the call sites: the ring has no opacity of its
+	 * own and derives it from this value in client_set_border_color(). */
 	c->opacity_animation.current_opacity = opacity;
 
 	wlr_scene_node_for_each_buffer(&c->scene_surface->node,
 								   scene_buffer_apply_opacity, &opacity);
 
-	/* The title bar is not part of the surface subtree, and its background is a
-	 * scene rect, which has no opacity to set. Left alone it stayed fully
-	 * opaque through a fade-in while the surface faded up behind it. */
+	/* The bar sits outside the surface subtree and its background is a scene rect
+	 * with no opacity: fade it explicitly or it stays opaque while the surface
+	 * fades up behind it. */
 	if (c->title_bar) {
 		mango_bar_decoration_set_opacity(c->title_bar, opacity);
 	}
 
-	/* The border ring is a scene rect too, and it is what a window reads as
-	 * while it fades in: left at full alpha it popped into view first and the
-	 * surface faded up inside it. client_set_border_color() applies the alpha
-	 * from here, so the recolouring and the fade cannot fight each other. */
+	/* The ring is one as well - left at full alpha it pops into view before the
+	 * fading surface behind it, so apply its fade from here. */
 	client_set_border_color(c, c->opacity_animation.current_border_color);
 }
 
@@ -4555,15 +4544,13 @@ void client_remove_group_bar(Client *c) {
  * Title bar.
  *
  * The bar is a child of the client's own scene tree, drawn inside the top of
- * the window frame: the border rect keeps the outer rounded corners and the
- * surface is pushed down by the bar height, so the radius wraps bar + surface
- * as one piece. `client_title_bar_height()` is the single source of truth for
- * that height; every place that turns a frame geometry into a surface geometry
- * has to subtract it (see client_actual_size(), resize(),
- * client_draw_border()).
+ * the frame: the surface is pushed down by the bar height and the border rect
+ * wraps both as one piece. `client_title_bar_height()` is the single source of
+ * truth for that height; everything that turns a frame geometry into a surface
+ * geometry has to subtract it.
  */
-/* Whether the window should currently show a title bar. Kept independent of the
- * scene node state so the geometry math never lags a frame behind. */
+/* Whether the window should currently show a title bar, independent of scene node
+ * state so the geometry math never lags a frame. */
 bool client_wants_title_bar(Client *c) {
 	if (!c || config.title_bar_height <= 0)
 		return false;
@@ -4584,10 +4571,8 @@ int32_t client_title_bar_height(Client *c) {
 	if (!c || !c->title_bar || !client_wants_title_bar(c))
 		return 0;
 
-	/* Every caller reads this one number: the surface is both positioned by it
-	 * and sized by it, so leaving it unclamped while the draw path clamps would
-	 * leave a gap at the bottom of a window shorter than the bar. The frame has
-	 * to keep a pixel of surface, hence the -1. */
+	/* Clamped to fit: callers read it both to position and size the surface, and
+	 * the frame must keep one row of surface, hence the -1. */
 	int32_t height = config.title_bar_height > 0 ? config.title_bar_height : 0;
 	int32_t room = c->geom.height - 2 * (int32_t)c->bw - 1;
 
@@ -4603,9 +4588,8 @@ void client_add_title_bar(Client *c) {
 	if (!c->title_bar)
 		return;
 
-	/* The bar is drawn on top of the surface and its bottom edge lands on the
-	 * same device pixel as the surface's top edge. Snap the bar's edge out so
-	 * the bar owns that pixel; see mango_bar_decoration_set_snap_edges(). */
+	/* Bar and surface share the edge pixel; snap the bar out so it owns it - see
+	 * mango_bar_decoration_set_snap_edges(). */
 	mango_bar_decoration_set_snap_edges(c->title_bar, WLR_EDGE_BOTTOM);
 
 	/* The bar must sit above the surface but below nothing else that a
@@ -4651,10 +4635,8 @@ void client_update_title_bar_focus(Client *c) {
 	if (!c || !c->title_bar || !c->mon)
 		return;
 
-	/* The same rule get_border_color() applies: a window is focused when it is
-	 * the selected client of the selected monitor. Asking the window's own
-	 * monitor instead made every monitor's selection look focused, while only
-	 * one of them had a focused border. */
+	/* The same rule get_border_color() applies: focused means the selected client
+	 * of the selected monitor, not of the window's own. */
 	bool focused = server.selected_monitor &&
 				   c->mon == server.selected_monitor &&
 				   c == server.selected_monitor->sel;

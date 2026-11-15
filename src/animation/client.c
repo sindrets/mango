@@ -76,10 +76,8 @@ struct ivec2 compute_edge_offsets(Client *c) {
 	return offsets;
 }
 
-/* The bar height for a frame of `frame_height`. client_title_bar_height()
- * already clamps against the client's own geometry; this narrows that further
- * for the frames an animation draws, which can be shorter than `c->geom` and
- * would otherwise put the bar outside the frame it is drawn into. */
+/* Bar height for a frame of `frame_height`, also clamped to the frame being
+ * drawn: animation frames can be shorter than `c->geom`. */
 void client_title_bar_draw_height(Client *c, int32_t frame_height,
 								  int32_t *bar_height) {
 	*bar_height = client_title_bar_height(c);
@@ -134,11 +132,9 @@ struct fx_corner_radii set_client_corner_location(Client *c) {
 	return current_corner_location;
 }
 
-// Radius the inner edge of a border with the given outer corners has. The
-// surface and the hole cut for it both sit inset by the border width, so they
-// need this rather than the outer radius: with the outer radius their arc would
-// land on the border's own outer arc, leaving the ring zero-width along the
-// curve. See client_draw_border().
+// Inner-edge radius of the border. The surface and the hole both sit inset by
+// the border width, so the outer radius would leave the ring zero-width along
+// the curve.
 struct fx_corner_radii client_inner_corner_location(Client *c,
 												struct fx_corner_radii outer) {
 	int32_t bw = (int32_t)c->bw;
@@ -150,15 +146,9 @@ struct fx_corner_radii client_inner_corner_location(Client *c,
 	return inner;
 }
 
-// Corners for the client surface itself, which is what actually draws the
-// window body. Without a title bar the surface fills the border's hole and the
-// inner radii above describe its outline exactly. With one, the surface hangs
-// below the bar, so its box origin has moved down by the bar height; its own
-// top arc would then sit that much lower than the frame's and leave a wedge of
-// background between the bar and the body. The frame's top arc belongs to the
-// bar in that case, so the surface's top corners go square and follow it from
-// just under the bar down. The straight edges still line up, since the inner
-// arc is already within a pixel of the box edge that far down the curve.
+// Corners of the client surface. With a title bar the surface hangs below it,
+// so its own top arc would sit lower than the frame's: its top corners go
+// square and follow the frame from just under the bar down.
 struct fx_corner_radii client_surface_corner_location(Client *c,
 										  struct fx_corner_radii outer) {
 	struct fx_corner_radii surface = client_inner_corner_location(c, outer);
@@ -358,14 +348,10 @@ void scene_buffer_apply_effect(struct wlr_scene_buffer *buffer, int32_t sx,
 		return;
 
 	wlr_scene_buffer_set_corner_radii(buffer, buffer_data->corner_location);
-	/* A surface pushed down by a title bar cannot follow the frame's curve with
-	 * a corner radius of its own, so it is clipped to the border's hole
-	 * instead. `soft` fades it by the hole's own coverage, which is what the
-	 * border's ring is cut with, so the seam blends as c*surface +
-	 * (1-c)*border with nothing behind it.
-	 *
-	 * The region is in the surface tree's space and a buffer's clip is read in
-	 * its own, so shift it by the buffer's offset inside the tree. */
+	/* Clip to the border's hole: a surface pushed down by a title bar cannot
+	 * follow the frame's curve with its own radius. `soft` fades it by the
+	 * hole's coverage, so the seam blends with the border. Shifting by
+	 * `sx`/`sy` puts the tree-space region in the buffer's own space. */
 	struct clipped_region clip = buffer_data->clip;
 	clip.area.x -= sx;
 	clip.area.y -= sy;
@@ -424,9 +410,8 @@ void client_draw_shadow(Client *c, struct ivec2 offsets) {
 	int32_t bw = (int32_t)c->bw;
 	int32_t bwoffset = bw != 0 && hit_no_border ? bw : 0;
 
-	/* The shadow wraps the whole frame, title bar included, so it uses the
-	 * frame content size rather than client_actual_size() (which subtracts
-	 * the bar for the surface). */
+	/* The shadow wraps the whole frame, bar included, so it uses the frame
+	 * content size rather than client_actual_size(). */
 	int32_t width = c->animation.current.width - 2 * bw;
 	int32_t height = c->animation.current.height - 2 * bw;
 
@@ -494,13 +479,10 @@ void client_draw_shadow(Client *c, struct ivec2 offsets) {
 	wlr_scene_shadow_set_clipped_region(c->shadow, clipped_region);
 }
 /*
- * Title bar geometry.
- *
- * The bar is drawn inside the top of the frame. Its outer top corners get the
- * border's inner radius so the bar's background melts into the window body;
- * the bottom corners stay square and are covered by the surface. The bar keeps
- * the frame's full width and is translated with it, so a window leaving an
- * output takes its bar along and only the part still on the monitor is painted.
+ * Title bar geometry. The bar is drawn inside the top of the frame, its outer
+ * top corners taking the border's inner radius; its bottom corners stay square
+ * under the surface. It keeps the frame's full width and travels with it -
+ * only the part still on a monitor is painted.
  */
 void client_draw_title_bar(Client *c) {
 	if (!c || !c->title_bar)
@@ -524,13 +506,8 @@ void client_draw_title_bar(Client *c) {
 		return;
 	}
 
-	/* The bar is a child of the frame, so translating the frame already carries
-	 * it along. Give it the frame's full content width and keep it there: the
-	 * title and the traffic lights are laid out against that width, so they
-	 * travel with the window and simply leave the screen. Sizing the bar to the
-	 * part still on the monitor instead - which is what this did - pins its
-	 * left edge to the monitor and re-flows its contents on every tick, so the
-	 * bar shrinks where the window slides. */
+	/* Give the bar the frame's full content width so its contents travel with
+	 * the window instead of re-flowing as it leaves the screen. */
 	int32_t width = cur.width - 2 * bw;
 	int32_t height = bar_height;
 	if (width <= 0 || height <= 0) {
@@ -541,33 +518,21 @@ void client_draw_title_bar(Client *c) {
 	int32_t x = bw;
 	int32_t y = bw;
 
-	/* How much of the bar has a monitor under it, in bar-local coordinates.
-	 * The bar paints only this much, so a window leaving an output takes its
-	 * bar with it instead of painting over the neighbour.
-	 *
-	 * `offsets` cannot be used for this: compute_edge_offsets() reports
-	 * nothing while `client_is_ignore_output_clip()` holds, and that is true
-	 * for a frame that is not scrolling or animating. At the end of a tag
-	 * animation `tagouting` is cleared before `current` is snapped back to
-	 * `geom`, so for one repaint the frame sits fully off its own output while
-	 * the offsets claim nothing is clipped, and the whole bar lands on the
-	 * neighbour. Measuring against the outputs has no such gap. */
+	/* How much of the bar is on a monitor, in bar-local coordinates; the bar
+	 * paints only this much. Measured against the outputs rather than `offsets`,
+	 * which reports nothing while client_is_ignore_output_clip() holds -
+	 * including one repaint after a tag animation ends. */
 	struct wlr_box bar_box = {cur.x + bw, cur.y + bw, width, height};
 	struct wlr_box covered = {0};
 	if (!client_is_ignore_output_clip(c) && c->mon) {
-		/* A tag animation slides the frame off its own output and across
-		 * the neighbour, and it must not paint there on the way out. Clip
-		 * to the output the window belongs to, as before. */
+		/* A tag animation slides the frame off its own output; it must not paint
+		 * on the neighbour, so clip to `c->mon`. */
 		wlr_box_intersection(&covered, &bar_box, &c->mon->m);
 	} else {
-		/* Otherwise the bar belongs wherever it currently is, which is
-		 * not necessarily `c->mon`: `movewin` moves `geom` without
-		 * touching the monitor, and a drag reaches the new output on a
-		 * motion event, one release before the window is handed over.
-		 * Clipping to `c->mon` in those cases makes this box empty and
-		 * hides the bar, which is the window losing its title bar on the
-		 * way across - and, over IPC, keeping it lost until something
-		 * re-assigns the monitor. */
+		/* Otherwise the bar belongs wherever it currently is, which is not
+		 * necessarily `c->mon`: `movewin` moves `geom` without touching the
+		 * monitor, and a drag reaches the new output one release before handover.
+		 * Clipping to `c->mon` there would hide the bar. */
 		covered = (struct wlr_box){0};
 		Monitor *iter;
 		wl_list_for_each(iter, &server.monitors, link) {
@@ -580,9 +545,8 @@ void client_draw_title_bar(Client *c) {
 				covered = hit;
 				continue;
 			}
-			/* Several outputs: take the box around all the pieces. A
-			 * clip region is one rectangle, and the gap between two
-			 * outputs is covered by neither, so spanning it is free. */
+			/* Several outputs: span them all - a clip region is one rectangle,
+			 * and the gap between two outputs is covered by neither. */
 			int32_t x0 = MANGO_MIN(covered.x, hit.x);
 			int32_t y0 = MANGO_MIN(covered.y, hit.y);
 			int32_t x1 =
@@ -598,11 +562,9 @@ void client_draw_title_bar(Client *c) {
 	int32_t vis_w = covered.width;
 	int32_t vis_h = covered.height;
 
-	/* Nothing left on this monitor: hide the bar outright. This has to be its
-	 * own case because an empty `visible` box is the bar's "no clip" state - on
-	 * the last frame of an exit the clamp above lands on exactly zero, and
-	 * handing that over would draw the whole bar at full width just outside the
-	 * output it is leaving. */
+	/* Nothing left on this monitor: hide the bar. An empty `visible` is its
+	 * "no clip" state, and the clamp above can land exactly there - handing that
+	 * over would draw the whole bar just outside the output it is leaving. */
 	if (vis_w <= 0 || vis_h <= 0) {
 		if (c->title_bar->scene->node.enabled)
 			wlr_scene_node_set_enabled(&c->title_bar->scene->node, false);
@@ -614,11 +576,8 @@ void client_draw_title_bar(Client *c) {
 	mango_bar_decoration_set_size(c->title_bar, width, height);
 	wlr_scene_node_set_position(&c->title_bar->scene->node, x, y);
 
-	/* The bar's box is the frame's content box, so its top corners are the
-	 * hole's corners: same arc centre, radius smaller by the border width. The
-	 * ring underneath is what turns the bar's own antialiased edge into a
-	 * blend, which is what keeps the border one unbroken line where it meets
-	 * the bar. */
+	/* The bar's top corners are the frame's hole corners: same arc centre,
+	 * radius smaller by the border width. */
 	struct fx_corner_radii corners = set_client_corner_location(c);
 	corners = client_inner_corner_location(c, corners);
 	corners.bottom_left = 0;
@@ -773,9 +732,7 @@ void client_draw_dim(Client *c, struct ivec2 clip_box) {
 	int32_t dim_height = 0;
 
 	/* The dim node is a child of the surface tree, which already sits below
-	 * the title bar, so it stays in surface coordinates and covers the surface
-	 * only. Including the bar height here would run the overlay past the bottom
-	 * of the frame. */
+	 * the title bar, so it covers the surface only. */
 	int32_t bar_height = client_title_bar_height(c);
 	if (client_is_ignore_output_clip(c)) {
 		dim_width = c->animation.current.width - 2 * (int32_t)c->bw;
@@ -795,10 +752,8 @@ void client_draw_dim(Client *c, struct ivec2 clip_box) {
 		return;
 	}
 
-	/* The overlay sits on top of the surface and must end exactly where the
-	 * surface does, so it takes the surface's own corners rather than the
-	 * configured radius: with a title bar the surface's top corners are square,
-	 * and rounding the overlay there would leave their undimmed tip showing. */
+	/* Takes the surface's own corners: with a title bar its top ones are square,
+	 * and rounding there would leave undimmed tips. */
 	mango_dim_node_set_corners(
 		c->dim_node,
 		client_surface_corner_location(c, set_client_corner_location(c)));
@@ -925,23 +880,13 @@ void client_draw_split_border(Client *c, bool hit_no_border,
 								border_right_y);
 }
 
-// The hole the border cuts for the frame's contents, in the border rect's own
-// coordinates - which is the space wlr_scene_rect_set_clipped_region() reads.
-// Add `offsets.x` / `offsets.y` to get frame coordinates, because the border
-// rect is itself drawn at that offset inside the frame.
-//
-// The border ring is a rounded rect with a cutout of the same shape inset by
-// the border width, and both the title bar and the client surface live inside
-// that cutout. It is the single definition of the frame's inner outline: the
-// border cuts it out, the surface is clipped to it, and the bar is given its
-// top corners, so the three cannot drift apart.
-//
-// The cutout needs the radius the border's *inner* edge has, not the outer one.
-// With the outer radius its arc would land on the border's own outer arc and
-// leave the ring zero-width along the curve, showing the background through it.
-//
-// The region can extend past the frame on the sides that are scrolled out of
-// the monitor, where `offsets` reports how much of the frame is hidden.
+// The hole the border ring cuts for the frame's contents, in the border rect's own
+// coordinates (what wlr_scene_rect_set_clipped_region() reads; add `offsets`
+// for frame coordinates). It is the single definition of the frame's inner outline:
+// the border cuts it out, the surface is clipped to it, and the bar takes its
+// top corners. It uses the border's *inner* edge radius - with the outer one
+// the ring would be zero-width along the curve. The region can extend past the
+// frame on sides that are scrolled out of the monitor; `offsets` reports how far.
 struct clipped_region client_frame_hole(Client *c, struct ivec2 offsets) {
 	struct wlr_box cur = c->animation.current;
 	int32_t bw = (int32_t)c->bw;
@@ -969,51 +914,28 @@ struct clipped_region client_frame_hole(Client *c, struct ivec2 offsets) {
 	};
 }
 
-// The clip that keeps the client surface inside the frame's hole.
-//
-// Only the top corners need it. A surface pushed down by a title bar cannot
-// follow the frame's curve with a corner radius of its own - the corner would
-// have to be centred above the surface - so it is clipped to the hole instead,
-// and the clip's top corners are what keep its square top edge from spilling
-// outside the arc.
-//
-// The area is the hole itself, unexpanded, and the region is soft. Expanding a
-// side would move that side's arc centre with it (see the note in the
-// function), so the surface would paint past the stroke; `soft` supplies the
-// antialiasing instead, fading the surface by the coverage the hole itself has.
-// Empty when no title bar pushes the surface down, because then the surface's
-// own corner radius already follows the frame's curve.
-//
-// In frame coordinates, like the hole itself. scene_buffer_apply_effect()
-// subtracts each buffer's position in the frame, which is what turns this into
-// the buffer-local region a scene buffer expects.
+// The clip that keeps the surface inside the frame's hole. Only its top corners need
+// it: a surface pushed down by a title bar cannot follow the frame's curve with a
+// radius of its own. The area is exactly the hole, unexpanded - moving an edge
+// outward moves that edge's arc centre with it and paints past the stroke; `soft`
+// supplies the antialiasing instead. In frame coordinates: scene_buffer_apply_effect()
+// subtracts each buffer's position to get the buffer-local region.
 struct clipped_region client_surface_clip(Client *c, struct ivec2 offsets) {
 	if (client_title_bar_height(c) <= 0)
 		return (struct clipped_region){0};
 
 	struct clipped_region hole = client_frame_hole(c, offsets);
 
-	/* The hole comes back in the border rect's coordinates, and the border rect
-	 * sits at `offsets` inside the frame. Adding them puts the clip in frame
-	 * coordinates, which is the space BufferData documents and the space
-	 * scene_buffer_apply_effect() subtracts a buffer's frame position from. */
+	/* Shift the hole from the border rect's coordinates into frame coordinates. */
 	hole.area.x += offsets.x;
 	hole.area.y += offsets.y;
 
 	hole.corners.bottom_left = 0;
 	hole.corners.bottom_right = 0;
 
-	/* The clip describes exactly the hole the ring is cut with. Each edge of a
-	 * rounded box carries its side's arc centre, so pushing an edge outward
-	 * moves that centre with it: the surface then paints that much further out
-	 * than the hole on that side and covers the stroke. That is what broke the
-	 * top-left corner at large radii, while the top-right - whose edge the old
-	 * asymmetric margin left alone - stayed correct.
-	 *
-	 * The antialiasing comes from `soft` instead, which fades the surface by
-	 * the coverage the hole itself has. That blends the arc into the ring and
-	 * fades the straight edges across whichever pixel their edge lands in, so
-	 * the clip need not be pushed off the buffer's own edges to avoid
+	/* Unexpanded, so no edge moves its arc centre and the surface paints past the
+	 * stroke. `soft` supplies the antialiasing instead - fading by the hole's own
+	 * coverage - so the clip need not be pushed off the buffer's own edges to avoid
 	 * snapping. */
 	hole.soft = true;
 	return hole;
@@ -1066,15 +988,10 @@ void client_draw_border(Client *c, struct ivec2 offsets) {
 	wlr_scene_node_set_position(&c->border->node, rect_x, rect_y);
 	wlr_scene_rect_set_corner_radii(c->border, current_corner_location);
 	wlr_scene_rect_set_clipped_region(c->border, clipped_region);
-	/* The ring has to sit above the title bar: the bar's rounded top corners
-	 * are antialiased and slide a pixel into the ring's band, which showed up
-	 * as the vertical border turning olive along the bar. Placement comes from
-	 * the creation order in client_init() - border, then title bar, then
-	 * shadow, blur and shield, all lowered to the bottom - so lowering the
-	 * ring here would drop it under the shadow, whose hard-cut hole then
-	 * multiplies the ring's partially covered pixels into a dark fringe along
-	 * the curve (commit 846745ea removed exactly that). Leave the order be.
-	 */
+	/* The ring has to sit above the title bar: its antialiased top corners slide
+	 * a pixel into the ring's band. Placement comes from the creation order in
+	 * client_init() - lowering it here would drop the ring under the shadow, whose
+	 * hard-cut hole then fringes it. */
 }
 
 struct ivec2 clip_to_hide(Client *c, struct wlr_box *clip_box,
@@ -1545,10 +1462,8 @@ void fadeout_client_animation_next_tick(Client *c) {
 
 	if (c->mon) {
 		bool scaling = client_close_animation_type(c) == ANIM_TYPE_ZOOM;
-		/* `geom` is the frame in absolute coordinates, which is what a zoom
-		 * shrinks about. `animation.initial` cannot be used for this: its
-		 * origin is zeroed so the snapshot tree starts at no translation, and
-		 * it is the translation, not a position. */
+		/* `geom` is what a zoom shrinks about; `animation.initial`'s origin is
+		 * zeroed, so it only holds the translation, not a position. */
 		scene_snapshot_clip_to_box(c->scene, &c->mon->m, scaling, width, height,
 								   &c->geom);
 	}
@@ -1645,21 +1560,17 @@ void init_fadeout_client(Client *c) {
 	c->snapshot_temp_visible = true;
 	client_update_visibility(c);
 	client_set_border_color(c, config.bordercolor);
-	/* A bar reaching past the monitor paints only the part that has an output
-	 * under it, so snapshotting it as it stands would take a cropped bar into
-	 * the animation: the missing part stays transparent for the whole close,
-	 * and as the frame shrinks towards its centre that gap becomes visible
-	 * inside the frame. Handing over a zero box means "the whole bar". */
+	/* A bar reaching past the monitor is handed over as a zero box ("the whole
+	 * bar"): snapshotting it cropped would leave its missing part transparent
+	 * for the whole close, and the frame shrinks towards its centre. */
 	if (c->title_bar) {
 		mango_bar_decoration_set_visible(c->title_bar, 0, 0, 0, 0);
 	}
 	if (c->ov_card_tree) {
 		/*
-		 * Closing in overview: the fadeout snapshot is based on the
-		 * already-scaled card tree. Snapshotting accumulates node coordinates,
-		 * but card tree coordinates are relative to (bw,bw), so a direct
-		 * snapshot would land near the layer origin; temporarily move the card
-		 * tree to the card's absolute screen coordinates before snapshotting.
+		 * Closing in overview: card tree coordinates are relative to (bw,bw), so a
+		 * direct snapshot would land near the layer origin; temporarily move the
+		 * card tree to its absolute screen coordinates first.
 		 */
 		int32_t abs_x = c->animation.current.x + (int32_t)c->bw;
 		int32_t abs_y = c->animation.current.y + (int32_t)c->bw;
@@ -1979,16 +1890,10 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 		else
 			wlr_scene_subsurface_tree_set_clip(&c->scene_surface->node, &clip);
 
-		/* The surface buffers carry the clip that keeps them inside the frame's
-		 * hole, and the wlr clip above does not touch it. Nothing else in this
-		 * branch refreshes it either, so a drag would leave the buffers clipped
-		 * to the size the window had when the grab started: the bar and the
-		 * border grow while the content stays put, until some unrelated redraw
-		 * happens to update it.
-		 *
-		 * The other paths refresh this through buffer_set_effect(), which
-		 * rescales the surface and so is not wanted mid-drag. Pass the scales a
-		 * grab would be given anyway and only the clip and corners arrive. */
+		/* No path in this branch refreshes the surface buffers' hole clip (the wlr
+		 * clip above does not touch it), so a drag would leave it stale. Pass scale
+		 * 1.0 to refresh only the clip and corners: buffer_set_effect() also rescales,
+		 * which is not wanted mid-drag. */
 		struct fx_corner_radii grab_corners = set_client_corner_location(c);
 		buffer_set_effect(
 			c, (BufferData){.width_scale = 1.0f,

@@ -64,13 +64,9 @@ typedef struct {
 	 */
 	struct fx_corner_radii blur_corner_location;
 	/* The clip that keeps the surface inside the frame's hole, in frame
-	 * coordinates. A surface shifted down by a title bar cannot follow the
-	 * frame's curve with a corner radius of its own, because the radius is
-	 * measured from the surface's top edge and its arc would land that much
-	 * lower than the frame's. Clipping it to the hole's exact shape keeps the
-	 * two curves on top of each other; scene_buffer_apply_effect() subtracts
-	 * each buffer's position to get the buffer-local region. Empty when there
-	 * is nothing to clip. */
+	 * coordinates. A surface pushed down by a bar can't follow the frame's curve
+	 * with its own radius, so it is clipped to the hole's shape; scene_buffer_apply_effect()
+	 * converts it to buffer-local form. Empty when there is nothing to clip. */
 	struct clipped_region clip;
 	bool should_scale;
 } BufferData;

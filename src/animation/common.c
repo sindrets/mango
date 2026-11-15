@@ -146,12 +146,8 @@ bool scene_node_snapshot(struct wlr_scene_node *node, int32_t lx, int32_t ly,
 	case WLR_SCENE_NODE_RECT: {
 		struct wlr_scene_rect *scene_rect = wlr_scene_rect_from_node(node);
 
-		/* Rect nodes carry most of what a window is decorated with: the
-		 * border ring and the title bar's background. Leaving them out of
-		 * the snapshot made them vanish the instant a close animation
-		 * started, while the surface, the title and the traffic lights
-		 * faded out normally - the frame and its bar were simply gone and
-		 * only the buffer survived. */
+		/* Rect nodes carry the border ring and the title bar's background:
+		 * snapshotting includes them, so they fade out with the frame. */
 		struct wlr_scene_rect *snapshot_rect =
 			wlr_scene_rect_create(snapshot_tree, scene_rect->width,
 								  scene_rect->height, scene_rect->color);
@@ -159,18 +155,16 @@ bool scene_node_snapshot(struct wlr_scene_node *node, int32_t lx, int32_t ly,
 			return false;
 		}
 
-		/* The colour arrives premultiplied and wlr_scene_rect_create() takes
-		 * it as-is, so it is copied verbatim rather than through
-		 * scene_rect_set_color(), which would premultiply a second time. */
+		/* The colour arrives premultiplied and wlr_scene_rect_create() takes it
+		 * as-is; going through scene_rect_set_color() would premultiply again. */
 		wlr_scene_rect_set_corner_radii(snapshot_rect, scene_rect->corners);
 		wlr_scene_rect_set_clipped_region(snapshot_rect,
 										  scene_rect->clipped_region);
 		wlr_scene_rect_set_snap_edges(snapshot_rect, scene_rect->snap_edges);
 
-		/* Rect nodes have no opacity of their own, so a fade scales their
-		 * colour. Keep the colour it started from: scaling the faded result
-		 * every tick would drive the bar and the ring to black instead of
-		 * letting them fade out. */
+		/* Rect nodes have no opacity of their own, so a fade scales their colour.
+		 * Keep the colour it started from: scaling the faded result every tick
+		 * would drive it to black. */
 		SnapshotMetadata *meta = calloc(1, sizeof(*meta));
 		if (meta == NULL) {
 			wlr_scene_node_destroy(&snapshot_rect->node);
@@ -214,17 +208,13 @@ bool scene_node_snapshot(struct wlr_scene_node *node, int32_t lx, int32_t ly,
 		meta->orig_width = scene_buffer->dst_width;
 		meta->orig_height = scene_buffer->dst_height;
 		meta->orig_src_box = scene_buffer->src_box;
-		/* The wrapper carries the buffer's absolute place in the snapshot, and
-		 * the buffer itself sits at its origin. Recording the wrapper's
-		 * position here is what lets a zoom move it with the frame; the buffer
-		 * keeps whatever offset the clipping needs on top of that. */
+		/* The wrapper carries the buffer's absolute place in the snapshot;
+		 * recording it here is what lets a zoom move it with the frame. */
 		meta->orig_x = lx;
 		meta->orig_y = ly;
 		/* The buffer's own rounding has to shrink with it: it is the bottom
-		 * corners of a title-barred window, which are all that is left of the
-		 * frame's curve once the bar covers the top. Left unscaled they keep
-		 * their full radius while the frame shrinks, and a wedge of the frame's
-		 * interior opens between the border and the surface. */
+		 * corners of a title-barred window, and left unscaled they open a wedge
+		 * between the border and the surface as the frame shrinks. */
 		meta->orig_corners = scene_buffer->corners;
 		meta->orig_clipped_region = scene_buffer->clipped_region;
 		meta->type = Snapshot;
@@ -273,10 +263,8 @@ bool scene_node_snapshot(struct wlr_scene_node *node, int32_t lx, int32_t ly,
 
 		// Effects
 		wlr_scene_buffer_set_opacity(snapshot_buffer, scene_buffer->opacity);
-		/* The corners and the clip are re-applied from the recorded originals
-		 * on every tick of a zoom, since both have to shrink with the buffer.
-		 * A clipped surface must stay clipped while it is animated, otherwise
-		 * the snapshot's corners pop into the frame's arc. */
+		/* Re-applied from the recorded originals on every tick: both have to
+		 * shrink with the buffer while a zoom runs. */
 		wlr_scene_buffer_set_corner_radii(snapshot_buffer,
 										  scene_buffer->corners);
 		wlr_scene_buffer_set_clipped_region(snapshot_buffer,
@@ -389,12 +377,10 @@ struct SnapshotClipData {
 	int32_t width;
 	int32_t height;
 	bool scale;
-	/* The frame the snapshot was taken at, in the same absolute coordinates
-	 * the snapshot's children use. A zoom shrinks the frame's buffers by
-	 * rewriting their destination size, but a rect is its box: it has to be
-	 * shrunk by rewriting the box, so everything is mapped from this frame into
-	 * the animated one. The frame's origin matters as much as its size, since
-	 * it is the point the shrink is centred on. */
+	/* The frame the snapshot was taken at, in the snapshot children's absolute
+	 * coordinates. A zoom rewrites each rect's box from this frame into the
+	 * animated one; its origin matters, since that is the point the shrink
+	 * centres on. */
 	struct wlr_box frame;
 };
 
@@ -451,18 +437,15 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 	}
 
 	SnapshotMetadata *meta = snapshot_node->owner;
-	/* sx/sy are the buffer's place in the snapshot already: the wrapper node
-	 * holds meta->orig_x/orig_y and the buffer only holds the offset the
-	 * clipping gave it last tick, which is not part of the original layout. */
+	/* sx/sy are the buffer's place in the snapshot; the buffer itself only
+	 * holds the offset the clipping gave it. */
 	int32_t base_x = sx;
 	int32_t base_y = sy;
 	int32_t dest_width = meta->orig_width;
 	int32_t dest_height = meta->orig_height;
 
-	/* A zoom scales the whole frame, so every buffer shrinks by the frame's
-	 * ratio, not to the frame's size: a window also holds the title text and
-	 * the traffic lights, and stretching each of them to the frame box made the
-	 * surface fill the bar's rows and spill past the border's bottom edge. */
+	/* Buffers shrink by the frame's ratio, not to the frame's size - stretching
+	 * them all to the frame box would make the surface fill the bar's rows. */
 	if (clip->scale && clip->frame.width > 0 && clip->frame.height > 0) {
 		double scale_x = (double)clip->width / (double)clip->frame.width;
 		double scale_y = (double)clip->height / (double)clip->frame.height;
@@ -473,10 +456,8 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 		dest_height = (int32_t)((int64_t)meta->orig_height * clip->height /
 								clip->frame.height);
 
-		/* The window surface's bottom corners and its inner arc are the only
-		 * rounding left visible once the title bar covers the top. Copying
-		 * them unscaled kept a full-radius arc on a shrinking surface, which
-		 * opened a wedge between the border and the content. */
+		/* The surface's bottom corners and inner arc are the only rounding left
+		 * visible under the title bar; scaling keeps them on the shrinking frame. */
 		wlr_scene_buffer_set_corner_radii(
 			buffer, snapshot_corners_scale(meta->orig_corners, scale));
 		wlr_scene_buffer_set_clipped_region(
@@ -518,11 +499,9 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 	wlr_scene_buffer_set_dest_size(buffer, visible.width, visible.height);
 
 	if (left != 0 || top != 0) {
-		/* The clip is the hole the surface leaves for the border's inner arc,
-		 * and it is expressed in the buffer's own box. Cropping the buffer
-		 * moves that box, so the hole has to move with it; left where it was,
-		 * it punches a rectangle out of the wrong part of the surface and the
-		 * desktop shows through between the content and the border. */
+		/* The clip is in the buffer's own box, so a crop that moves the box must
+		 * move the hole with it - left where it was, it punches out the wrong part
+		 * of the surface. */
 		struct clipped_region crop = buffer->clipped_region;
 		if (crop.area.width > 0 && crop.area.height > 0) {
 			crop.area.x -= left;
@@ -531,10 +510,9 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 		}
 	}
 
-	/* A side this buffer dropped because it left the monitor has no corner
-	 * left to round, the same way the title bar squares off the side that
-	 * slid off. Without this, a window sliding out of view rounds off against
-	 * the screen edge instead of travelling past it. */
+	/* A side this buffer dropped because it left the monitor has no corner left
+	 * to round - without this a window sliding out rounds against the screen edge
+	 * instead of travelling past it. */
 	if (left != 0 || top != 0 || visible.width != dest_width ||
 		visible.height != dest_height) {
 		struct fx_corner_radii corners = buffer->corners;
@@ -601,9 +579,8 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 
 /*
  * Maps a snapshot child's absolute coordinate into the animated frame. A zoom
- * shrinks the frame about its own centre, so the frame's origin is the anchor
- * the children have to be scaled around; using the screen's origin instead
- * pulled every window towards the top left of the layout as it shrank.
+ * shrinks about the frame's own centre, so the frame's origin is the anchor its
+ * children scale around.
  */
 static int32_t frame_origin_scale(int32_t frame_origin, int32_t value,
 								  double scale) {
@@ -612,11 +589,9 @@ static int32_t frame_origin_scale(int32_t frame_origin, int32_t value,
 }
 
 /*
- * Maps every snapshot rect from the frame it was taken at into the animated
- * one. Buffers get the same treatment through their destination size, but a
- * rect has no such size to rewrite: its box, its corner radii and the hole it
- * cuts all have to be recomputed. Everything is derived from the geometry
- * recorded at snapshot time, so repeated ticks cannot compound.
+ * Maps every snapshot rect from the frame it was taken at into the animated one.
+ * A rect has no destination size, so its box, corner radii and hole are
+ * recomputed from what was recorded at snapshot time.
  */
 static void scene_snapshot_scale_rects(struct wlr_scene_node *node,
 									   const struct SnapshotClipData *clip) {
@@ -637,12 +612,9 @@ static void scene_snapshot_scale_rects(struct wlr_scene_node *node,
 		 * smaller of the two factors to stay inside the box. */
 		double scale = MANGO_MIN(scale_x, scale_y);
 
-		/* Every snapshot child sits at its snapshot-absolute place directly
-		 * under the snapshot tree, and the tree itself only translates: a zoom
-		 * never scales the space its children live in. So each child has to
-		 * move towards the frame's own origin by the same factor its extent
-		 * shrinks by. Anchoring on the screen's origin instead pulled a window
-		 * towards the top left of the layout as it shrank. */
+		/* Snapshot children sit directly under the snapshot tree, which only
+		 * translates: each child moves towards the frame's origin by the same
+		 * factor its extent shrinks by. */
 		struct wlr_scene_rect *rect = wlr_scene_rect_from_node(node);
 		wlr_scene_node_set_position(
 			node, frame_origin_scale(clip->frame.x, meta->orig_x, scale_x),
@@ -657,19 +629,11 @@ static void scene_snapshot_scale_rects(struct wlr_scene_node *node,
 		corners.bottom_left = (uint16_t)(corners.bottom_left * scale);
 		wlr_scene_rect_set_corner_radii(rect, corners);
 
-		/* The hole is what leaves the border visible, and the border is only a
-		 * pixel or two wide to start with. Truncating its inset to zero at
-		 * any zoom factor below 1 would cut the border away completely on the
-		 * sides the hole then reaches, so the inset is rounded and kept at a
-		 * pixel wherever the original had one, and the hole is sized from the
-		 * shrunk box rather than from its own scaled extent. */
-		/* Only the border ring cuts a hole; the title bar's background is a
-		 * plain rect, and giving it a hole that covers the whole box would
-		 * erase it. The ring's inset is also only a pixel or two to begin
-		 * with, so truncating it to zero at any factor below 1 would cut the
-		 * border away on those sides: it is rounded and kept at a pixel
-		 * wherever the original had one, and the hole is sized from the shrunk
-		 * box rather than from its own scaled extent. */
+		/* Only the border ring cuts a hole (the bar background is a plain rect - a
+		 * hole over its whole box would erase it). Its inset is a pixel or two to
+		 * start with, so clamping it to zero at any factor below 1 cuts the border
+		 * away on those sides; keep it at one pixel where there was one, and size
+		 * the hole from the shrunk box. */
 		struct clipped_region hole = meta->orig_clipped_region;
 		if (hole.area.width > 0 && hole.area.height > 0) {
 			int32_t inset_x = hole.area.x > 0
@@ -738,13 +702,9 @@ void scene_snapshot_clip_to_box(struct wlr_scene_tree *snapshot,
 	};
 	scene_snapshot_enable_buffers(&snapshot->node);
 
-	/* The rects and the buffer wrappers carry the snapshot's own coordinates,
-	 * and the buffer walk below reads them to work out how much of each buffer
-	 * a monitor still covers. Moving them first is what makes that box agree
-	 * with where the buffers are this tick. Done afterwards, every buffer is
-	 * clipped against the position it had on the previous frame, which leaves
-	 * a gap where the surface has not caught up with the border and holds the
-	 * bar's off-screen part for one tick too long. */
+	/* The rects and wrappers are moved to this tick's positions before clipping:
+	 * the coverage walk below reads each buffer's place as it is, so clipping
+	 * first would use last frame's coordinates and open a seam. */
 	if (scale) {
 		scene_snapshot_scale_rects(&snapshot->node, &clip);
 	}
@@ -782,11 +742,8 @@ static void scene_rect_fade(struct wlr_scene_node *node, double opacity) {
 }
 
 /*
- * Fades a snapshot by `opacity`: buffers through their own opacity, rects
- * through their colour. The plain wlr_scene_node_for_each_buffer() walk used
- * before this only ever saw buffers, so the border ring and the title bar's
- * background stayed fully opaque for a whole close animation while everything
- * around them faded out.
+ * Fades a snapshot by `opacity`: buffers through their own opacity, rects through
+ * their colour (a plain buffer walk sees neither of the two rect decorations).
  */
 void scene_snapshot_fade(struct wlr_scene_node *node, double opacity) {
 	if (!node) {

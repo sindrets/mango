@@ -156,8 +156,7 @@ typedef struct MangoBarDecoration {
 	bool close_cached_hover;
 	bool close_cached_valid;
 
-	/* Traffic-light buttons (title bars): a left or right aligned strip of
-	 * `MANGO_BAR_BUTTON_COUNT` circular buttons. */
+	/* Traffic-light button state. */
 	bool buttons_enabled;
 	bool buttons_left;
 	int32_t button_size;
@@ -166,28 +165,16 @@ typedef struct MangoBarDecoration {
 	int32_t hover_button;
 	MangoBarButton buttons[MANGO_BAR_BUTTON_COUNT];
 
-	/* Explicit corner radii, used by title bars to copy the window border's
-	 * corners so the bar and the surface share one rounded outline. */
 	bool corners_override;
 	struct fx_corner_radii corners;
 
-	/* The part of the bar still on screen, in bar-local coordinates. Empty
-	 * means all of it. A bar that slides past a monitor edge must travel with
-	 * its window instead of shrinking against it, so it keeps its full size and
-	 * paints only this much of itself: the title and the traffic lights stay
-	 * where they are and merely get cut off as they leave. */
+	/* The part of the bar still on screen (bar-local); zero size means no clip. */
 	struct wlr_box visible;
 
-	/* Edges (enum wlr_edges) this bar's rects snap outwards to whole device
-	 * pixels. A bar that sits directly on the client surface sets its bottom
-	 * edge: at a fractional output scale the bar and the surface would
-	 * otherwise both fade the device pixel their common edge crosses, and the
-	 * composed coverage lets the desktop show through a sub-pixel line. */
+	/* Edges to snap outwards to whole device pixels; prevents double antialiasing at shared edges. */
 	uint32_t snap_edges;
 
-	/* Fade factor the bar paints at, 0..1. The scene buffers carry their own
-	 * opacity, but the two rects behind them do not, so the bar keeps this to
-	 * scale its colours by instead. */
+	/* Fade factor, applied to the rects' colours (a scene rect has no opacity of its own). */
 	float opacity;
 
 } MangoBarDecoration;
@@ -233,7 +220,6 @@ void mango_bar_decoration_set_close_hover(MangoBarDecoration *node, bool hover);
 bool mango_bar_decoration_close_contains(MangoBarDecoration *node, double lx,
 										 double ly);
 
-/* Traffic-light buttons, left aligned for title bars. */
 void mango_bar_decoration_set_buttons(MangoBarDecoration *node, bool enabled,
 									  bool left, int32_t size, int32_t gap,
 									  int32_t margin);
@@ -245,25 +231,19 @@ void mango_bar_decoration_set_button_hover(MangoBarDecoration *node,
 int32_t mango_bar_decoration_button_at(MangoBarDecoration *node, double lx,
 									   double ly);
 
-/* Explicit corner radii, used by a title bar to copy the window border's
- * corners so the bar and the surface share one rounded outline. */
+/* Override the bar's corner radii so they match the window border's. */
 void mango_bar_decoration_set_corners(MangoBarDecoration *node,
 									  struct fx_corner_radii corners);
 
-/* Edges (bitmask of enum wlr_edges) the bar's own rects snap outwards to whole
- * device pixels. A bar drawn directly on the client surface sets its bottom
- * edge so the two do not both fade the device pixel they share. */
+/* Snap the bar's rect edges to whole device pixels (prevents double antialiasing at shared edges). */
 void mango_bar_decoration_set_snap_edges(MangoBarDecoration *node,
 										 uint32_t edges);
 
-/* Restrict painting to `visible`, in bar-local coordinates. The bar keeps its
- * logical size, so its contents do not re-lay-out as it moves; only the part
- * named here is drawn. A zero `width` or `height` means the whole bar. */
+/* Paint only the visible part of the bar; zero width/height means no clip. */
 void mango_bar_decoration_set_visible(MangoBarDecoration *node, int32_t x,
 									  int32_t y, int32_t width, int32_t height);
 
-/* Overall fade of the bar, 0..1. Applied to the rects' colours, since a scene
- * rect has no opacity of its own; the buffers get theirs set separately. */
+/* Fade the bar (applied to the rects' colours). */
 void mango_bar_decoration_set_opacity(MangoBarDecoration *node, float opacity);
 void mango_jump_label_node_apply_config(MangoJumpLabel *node,
 										const DecorateDrawData *data);
