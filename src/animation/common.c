@@ -220,6 +220,13 @@ bool scene_node_snapshot(struct wlr_scene_node *node, int32_t lx, int32_t ly,
 		 * keeps whatever offset the clipping needs on top of that. */
 		meta->orig_x = lx;
 		meta->orig_y = ly;
+		/* The buffer's own rounding has to shrink with it: it is the bottom
+		 * corners of a title-barred window, which are all that is left of the
+		 * frame's curve once the bar covers the top. Left unscaled they keep
+		 * their full radius while the frame shrinks, and a wedge of the frame's
+		 * interior opens between the border and the surface. */
+		meta->orig_corners = scene_buffer->corners;
+		meta->orig_clipped_region = scene_buffer->clipped_region;
 		meta->type = Snapshot;
 
 		struct wlr_scene_surface *scene_surface =
@@ -266,10 +273,12 @@ bool scene_node_snapshot(struct wlr_scene_node *node, int32_t lx, int32_t ly,
 
 		// Effects
 		wlr_scene_buffer_set_opacity(snapshot_buffer, scene_buffer->opacity);
+		/* The corners and the clip are re-applied from the recorded originals
+		 * on every tick of a zoom, since both have to shrink with the buffer.
+		 * A clipped surface must stay clipped while it is animated, otherwise
+		 * the snapshot's corners pop into the frame's arc. */
 		wlr_scene_buffer_set_corner_radii(snapshot_buffer,
 										  scene_buffer->corners);
-		/* A clipped surface must stay clipped while it is animated, otherwise
-		 * the snapshot's corners pop into the frame's arc. */
 		wlr_scene_buffer_set_clipped_region(snapshot_buffer,
 											scene_buffer->clipped_region);
 
@@ -406,6 +415,31 @@ static void scene_snapshot_enable_buffers(struct wlr_scene_node *node) {
 	}
 }
 
+static struct fx_corner_radii
+snapshot_corners_scale(struct fx_corner_radii corners, double scale) {
+	corners.top_left = (uint16_t)(corners.top_left * scale);
+	corners.top_right = (uint16_t)(corners.top_right * scale);
+	corners.bottom_right = (uint16_t)(corners.bottom_right * scale);
+	corners.bottom_left = (uint16_t)(corners.bottom_left * scale);
+	return corners;
+}
+
+/* The hole a buffer cuts into itself (the window frame's inner arc) has to
+ * shrink with the buffer for the same reason its corners do. */
+static struct clipped_region snapshot_hole_scale(struct clipped_region hole,
+												 double scale_x, double scale_y,
+												 double scale) {
+	if (hole.area.width <= 0 || hole.area.height <= 0) {
+		return hole;
+	}
+	hole.area.x = (int32_t)(hole.area.x * scale_x);
+	hole.area.y = (int32_t)(hole.area.y * scale_y);
+	hole.area.width = (int32_t)(hole.area.width * scale_x);
+	hole.area.height = (int32_t)(hole.area.height * scale_y);
+	hole.corners = snapshot_corners_scale(hole.corners, scale);
+	return hole;
+}
+
 static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 									   int32_t sx, int32_t sy, void *data) {
 	struct SnapshotClipData *clip = data;
@@ -429,10 +463,24 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 	 * the traffic lights, and stretching each of them to the frame box made the
 	 * surface fill the bar's rows and spill past the border's bottom edge. */
 	if (clip->scale && clip->frame_width > 0 && clip->frame_height > 0) {
+		double scale_x = (double)clip->width / (double)clip->frame_width;
+		double scale_y = (double)clip->height / (double)clip->frame_height;
+		double scale = MANGO_MIN(scale_x, scale_y);
+
 		dest_width = (int32_t)((int64_t)meta->orig_width * clip->width /
 							   clip->frame_width);
 		dest_height = (int32_t)((int64_t)meta->orig_height * clip->height /
 								clip->frame_height);
+
+		/* The window surface's bottom corners and its inner arc are the only
+		 * rounding left visible once the title bar covers the top. Copying
+		 * them unscaled kept a full-radius arc on a shrinking surface, which
+		 * opened a wedge between the border and the content. */
+		wlr_scene_buffer_set_corner_radii(
+			buffer, snapshot_corners_scale(meta->orig_corners, scale));
+		wlr_scene_buffer_set_clipped_region(
+			buffer, snapshot_hole_scale(meta->orig_clipped_region, scale_x,
+										scale_y, scale));
 	}
 	if (dest_width <= 0 || dest_height <= 0) {
 		dest_width = buffer->WLR_PRIVATE.buffer_width;
