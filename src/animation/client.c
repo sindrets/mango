@@ -1545,8 +1545,12 @@ void fadeout_client_animation_next_tick(Client *c) {
 
 	if (c->mon) {
 		bool scaling = client_close_animation_type(c) == ANIM_TYPE_ZOOM;
+		/* `geom` is the frame in absolute coordinates, which is what a zoom
+		 * shrinks about. `animation.initial` cannot be used for this: its
+		 * origin is zeroed so the snapshot tree starts at no translation, and
+		 * it is the translation, not a position. */
 		scene_snapshot_clip_to_box(c->scene, &c->mon->m, scaling, width, height,
-								   &c->animation.initial);
+								   &c->geom);
 	}
 
 	if (animation_passed >= 1.0) {

@@ -389,12 +389,13 @@ struct SnapshotClipData {
 	int32_t width;
 	int32_t height;
 	bool scale;
-	/* Frame the snapshot was taken at. A zoom shrinks the frame's buffers by
+	/* The frame the snapshot was taken at, in the same absolute coordinates
+	 * the snapshot's children use. A zoom shrinks the frame's buffers by
 	 * rewriting their destination size, but a rect is its box: it has to be
-	 * shrunk by rewriting the box, so the rects are mapped from this frame into
-	 * the animated one. */
-	int32_t frame_width;
-	int32_t frame_height;
+	 * shrunk by rewriting the box, so everything is mapped from this frame into
+	 * the animated one. The frame's origin matters as much as its size, since
+	 * it is the point the shrink is centred on. */
+	struct wlr_box frame;
 };
 
 static void scene_snapshot_enable_buffers(struct wlr_scene_node *node) {
@@ -462,15 +463,15 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 	 * ratio, not to the frame's size: a window also holds the title text and
 	 * the traffic lights, and stretching each of them to the frame box made the
 	 * surface fill the bar's rows and spill past the border's bottom edge. */
-	if (clip->scale && clip->frame_width > 0 && clip->frame_height > 0) {
-		double scale_x = (double)clip->width / (double)clip->frame_width;
-		double scale_y = (double)clip->height / (double)clip->frame_height;
+	if (clip->scale && clip->frame.width > 0 && clip->frame.height > 0) {
+		double scale_x = (double)clip->width / (double)clip->frame.width;
+		double scale_y = (double)clip->height / (double)clip->frame.height;
 		double scale = MANGO_MIN(scale_x, scale_y);
 
 		dest_width = (int32_t)((int64_t)meta->orig_width * clip->width /
-							   clip->frame_width);
+							   clip->frame.width);
 		dest_height = (int32_t)((int64_t)meta->orig_height * clip->height /
-								clip->frame_height);
+								clip->frame.height);
 
 		/* The window surface's bottom corners and its inner arc are the only
 		 * rounding left visible once the title bar covers the top. Copying
@@ -585,6 +586,18 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 }
 
 /*
+ * Maps a snapshot child's absolute coordinate into the animated frame. A zoom
+ * shrinks the frame about its own centre, so the frame's origin is the anchor
+ * the children have to be scaled around; using the screen's origin instead
+ * pulled every window towards the top left of the layout as it shrank.
+ */
+static int32_t frame_origin_scale(int32_t frame_origin, int32_t value,
+								  double scale) {
+	return (int32_t)lround(frame_origin +
+						   (double)(value - frame_origin) * scale);
+}
+
+/*
  * Maps every snapshot rect from the frame it was taken at into the animated
  * one. Buffers get the same treatment through their destination size, but a
  * rect has no such size to rewrite: its box, its corner radii and the hole it
@@ -600,12 +613,12 @@ static void scene_snapshot_scale_rects(struct wlr_scene_node *node,
 		}
 
 		SnapshotMetadata *meta = payload->owner;
-		if (clip->frame_width <= 0 || clip->frame_height <= 0) {
+		if (clip->frame.width <= 0 || clip->frame.height <= 0) {
 			return;
 		}
 
-		double scale_x = (double)clip->width / (double)clip->frame_width;
-		double scale_y = (double)clip->height / (double)clip->frame_height;
+		double scale_x = (double)clip->width / (double)clip->frame.width;
+		double scale_y = (double)clip->height / (double)clip->frame.height;
 		/* The corners are a square box in each corner, so they scale by the
 		 * smaller of the two factors to stay inside the box. */
 		double scale = MANGO_MIN(scale_x, scale_y);
@@ -613,12 +626,13 @@ static void scene_snapshot_scale_rects(struct wlr_scene_node *node,
 		/* Every snapshot child sits at its snapshot-absolute place directly
 		 * under the snapshot tree, and the tree itself only translates: a zoom
 		 * never scales the space its children live in. So each child has to
-		 * move towards the frame's origin by the same factor its extent
-		 * shrinks by, or a window would keep the layout's proportions and the
-		 * surface would drift out from under the shrinking border. */
+		 * move towards the frame's own origin by the same factor its extent
+		 * shrinks by. Anchoring on the screen's origin instead pulled a window
+		 * towards the top left of the layout as it shrank. */
 		struct wlr_scene_rect *rect = wlr_scene_rect_from_node(node);
-		wlr_scene_node_set_position(node, (int32_t)(meta->orig_x * scale_x),
-									(int32_t)(meta->orig_y * scale_y));
+		wlr_scene_node_set_position(
+			node, frame_origin_scale(clip->frame.x, meta->orig_x, scale_x),
+			frame_origin_scale(clip->frame.y, meta->orig_y, scale_y));
 		wlr_scene_rect_set_size(rect, (int32_t)(meta->orig_width * scale_x),
 								(int32_t)(meta->orig_height * scale_y));
 
@@ -676,12 +690,13 @@ static void scene_snapshot_scale_rects(struct wlr_scene_node *node,
 	 * snapshot-absolute origin, so it moves exactly like a rect. */
 	MangoSceneNode *payload = node->data;
 	if (payload && payload->type == Snapshot && payload->owner &&
-		clip->frame_width > 0 && clip->frame_height > 0) {
+		clip->frame.width > 0 && clip->frame.height > 0) {
 		SnapshotMetadata *meta = payload->owner;
-		double scale_x = (double)clip->width / (double)clip->frame_width;
-		double scale_y = (double)clip->height / (double)clip->frame_height;
-		wlr_scene_node_set_position(node, (int32_t)(meta->orig_x * scale_x),
-									(int32_t)(meta->orig_y * scale_y));
+		double scale_x = (double)clip->width / (double)clip->frame.width;
+		double scale_y = (double)clip->height / (double)clip->frame.height;
+		wlr_scene_node_set_position(
+			node, frame_origin_scale(clip->frame.x, meta->orig_x, scale_x),
+			frame_origin_scale(clip->frame.y, meta->orig_y, scale_y));
 	}
 
 	struct wlr_scene_tree *tree = wlr_scene_tree_from_node(node);
@@ -704,8 +719,8 @@ void scene_snapshot_clip_to_box(struct wlr_scene_tree *snapshot,
 		.width = width,
 		.height = height,
 		.scale = scale,
-		.frame_width = orig ? orig->width : width,
-		.frame_height = orig ? orig->height : height,
+		.frame =
+			orig ? *orig : (struct wlr_box){.width = width, .height = height},
 	};
 	scene_snapshot_enable_buffers(&snapshot->node);
 	wlr_scene_node_for_each_buffer(&snapshot->node, scene_snapshot_clip_buffer,

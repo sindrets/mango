@@ -341,8 +341,11 @@ void fadeout_layer_animation_next_tick(LayerSurface *l) {
 
 	if (l->mon) {
 		bool scaling = layer_close_animation_type(l) == ANIM_TYPE_ZOOM;
+		/* `geom` is the layer in absolute coordinates, which is what a zoom
+		 * shrinks about; `animation.initial` has its origin zeroed and is a
+		 * translation, not a position. */
 		scene_snapshot_clip_to_box(l->scene, &l->mon->m, scaling, width, height,
-								   &l->animation.initial);
+								   &l->geom);
 	}
 
 	l->animation.current = (struct wlr_box){
