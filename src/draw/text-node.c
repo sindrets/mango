@@ -262,6 +262,25 @@ static int32_t logical_floor_to_device(float scale, int32_t pixel) {
 	return logical - logical % denom;
 }
 
+/* Nearest logical length whose device size is exact. A square traffic-light
+ * button is its own slot, so unlike text it can move either way without
+ * stealing room from anything next to it; snapping down would make a size-15
+ * button shrink to 12 at 1.75 scale, which is a visible jolt. */
+static int32_t logical_snap_nearest(float scale, int32_t logical) {
+	if (scale <= 0.0f || logical <= 0) {
+		return logical;
+	}
+	int32_t denom = scale_denominator(scale);
+	if (denom <= 1) {
+		return logical;
+	}
+	int32_t lower = logical - logical % denom;
+	int32_t upper = lower + denom;
+	int32_t snapped = (logical - lower) * 2 < denom ? lower : upper;
+	/* Never snap a visible button away entirely. */
+	return snapped >= 1 ? snapped : logical;
+}
+
 static void layout_configure(PangoLayout *layout, const char *font_desc,
 							 const char *text) {
 	pango_layout_set_font_description(layout, get_cached_font_desc(font_desc));
@@ -926,7 +945,10 @@ static int32_t bar_buttons_strip_width(const MangoBarDecoration *node) {
 	if (!node->buttons_enabled || node->button_size <= 0)
 		return 0;
 
-	int32_t strip = MANGO_BAR_BUTTON_COUNT * node->button_size +
+	/* The buttons are drawn at the snapped size, so the strip has to reserve
+	 * that same size or the gaps and the side inset come out wrong. */
+	int32_t size = logical_snap_nearest(node->last_scale, node->button_size);
+	int32_t strip = MANGO_BAR_BUTTON_COUNT * size +
 					(MANGO_BAR_BUTTON_COUNT - 1) * node->button_gap;
 	return strip;
 }
@@ -948,7 +970,9 @@ static bool bar_button_box(const MangoBarDecoration *node, int32_t index,
 		size = node->target_height;
 	if (size > node->target_width)
 		size = node->target_width;
-
+	/* Square and fixed logical size, so snapping to the nearest size the
+	 * scene reproduces 1:1 is the only way to keep it exact. */
+	size = logical_snap_nearest(node->last_scale, size);
 	int32_t strip = bar_buttons_strip_width(node);
 	int32_t margin = node->button_margin;
 	int32_t space = node->target_width - strip;
@@ -1091,7 +1115,9 @@ static void bar_buttons_sync(MangoBarDecoration *node) {
 			continue;
 		}
 
-		int32_t pixel = (int32_t)(size * scale + 0.5f);
+		/* `size` is already snapped, so this is the exact device size and the
+		 * surface, its source box and its destination all agree. */
+		int32_t pixel = device_length(scale, size);
 		if (pixel < 1)
 			pixel = 1;
 
@@ -1382,6 +1408,8 @@ static bool close_button_box(const MangoBarDecoration *node, int32_t *out_x,
 		size = node->target_height;
 	if (size > node->target_width)
 		size = node->target_width;
+	/* Same as the traffic lights: snap to an exact device size. */
+	size = logical_snap_nearest(node->last_scale, size);
 	int32_t margin = node->close_margin;
 	if (margin > node->target_width - size)
 		margin = node->target_width - size;
@@ -1453,7 +1481,8 @@ static void close_button_sync(MangoBarDecoration *node) {
 	}
 
 	float scale = node->last_scale > 0.0f ? node->last_scale : 1.0f;
-	int32_t pixel = (int32_t)(size * scale + 0.5f);
+	/* `size` is already snapped, so this is the exact device size. */
+	int32_t pixel = device_length(scale, size);
 	if (pixel < 1)
 		pixel = 1;
 
