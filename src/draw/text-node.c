@@ -19,6 +19,12 @@
 #define TEXT_NODE_CORNER_RADIUS 0
 #endif
 
+/* Min-gap between buttons and title text. */
+#define BAR_BUTTON_TEXT_GAP 10
+
+/* Longest a title is allowed to get before it is ellipsized, in logical pixels. */
+#define BAR_TEXT_MAX_WIDTH 900
+
 static GHashTable *font_desc_cache = NULL;
 
 PangoFontDescription *get_cached_font_desc(const char *font_desc) {
@@ -1144,7 +1150,7 @@ static int32_t bar_decoration_side_inset(const MangoBarDecoration *node) {
 
 	int32_t strip = bar_buttons_strip_width(node);
 	if (strip > 0) {
-		int32_t reserved = strip + node->button_margin;
+		int32_t reserved = strip + node->button_margin + BAR_BUTTON_TEXT_GAP;
 		if (reserved > inset) {
 			inset = reserved;
 		}
@@ -1528,6 +1534,9 @@ void mango_bar_decoration_update(MangoBarDecoration *node, const char *text,
 		node->focused ? node->focus_fg_color : node->fg_color;
 
 	int32_t avail_w = bar_decoration_avail_width(node);
+	if (avail_w > BAR_TEXT_MAX_WIDTH) {
+		avail_w = BAR_TEXT_MAX_WIDTH;
+	}
 	/* Compare and ellipsize in the device pixels the layout can actually use.
 	 * An exact logical width is what survives transport, so budgeting against the
 	 * raw scaled width could drop a character that in fact fits. */
