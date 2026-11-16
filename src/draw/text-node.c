@@ -870,10 +870,11 @@ static bool bar_button_box(const MangoBarDecoration *node, int32_t index,
 		margin = space;
 
 	*out_size = size;
+	/* Left: close, minimize, maximize from the left edge.
+	 * Right: invert the button order. */
 	int32_t x = node->buttons_left ? margin + index * (size + node->button_gap)
-								   : node->target_width - margin - strip +
+								   : node->target_width - margin - size -
 										 index * (size + node->button_gap);
-
 	/* Clamp inside the bar: on a narrow bar the button strip can be wider
 	 * than the bar itself. */
 	int32_t room = node->target_width - size;
