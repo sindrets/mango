@@ -156,15 +156,16 @@ bool scene_node_snapshot(struct wlr_scene_node *node, int32_t lx, int32_t ly,
 		}
 
 		/* The colour arrives premultiplied and wlr_scene_rect_create() takes it
-		 * as-is; going through scene_rect_set_color() would premultiply again. */
+		 * as-is; going through scene_rect_set_color() would premultiply again.
+		 */
 		wlr_scene_rect_set_corner_radii(snapshot_rect, scene_rect->corners);
 		wlr_scene_rect_set_clipped_region(snapshot_rect,
 										  scene_rect->clipped_region);
 		wlr_scene_rect_set_snap_edges(snapshot_rect, scene_rect->snap_edges);
 
-		/* Rect nodes have no opacity of their own, so a fade scales their colour.
-		 * Keep the colour it started from: scaling the faded result every tick
-		 * would drive it to black. */
+		/* Rect nodes have no opacity of their own, so a fade scales their
+		 * colour. Keep the colour it started from: scaling the faded result
+		 * every tick would drive it to black. */
 		SnapshotMetadata *meta = calloc(1, sizeof(*meta));
 		if (meta == NULL) {
 			wlr_scene_node_destroy(&snapshot_rect->node);
@@ -457,7 +458,8 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 								clip->frame.height);
 
 		/* The surface's bottom corners and inner arc are the only rounding left
-		 * visible under the title bar; scaling keeps them on the shrinking frame. */
+		 * visible under the title bar; scaling keeps them on the shrinking
+		 * frame. */
 		wlr_scene_buffer_set_corner_radii(
 			buffer, snapshot_corners_scale(meta->orig_corners, scale));
 		wlr_scene_buffer_set_clipped_region(
@@ -499,9 +501,9 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 	wlr_scene_buffer_set_dest_size(buffer, visible.width, visible.height);
 
 	if (left != 0 || top != 0) {
-		/* The clip is in the buffer's own box, so a crop that moves the box must
-		 * move the hole with it - left where it was, it punches out the wrong part
-		 * of the surface. */
+		/* The clip is in the buffer's own box, so a crop that moves the box
+		 * must move the hole with it - left where it was, it punches out the
+		 * wrong part of the surface. */
 		struct clipped_region crop = buffer->clipped_region;
 		if (crop.area.width > 0 && crop.area.height > 0) {
 			crop.area.x -= left;
@@ -511,8 +513,8 @@ static void scene_snapshot_clip_buffer(struct wlr_scene_buffer *buffer,
 	}
 
 	/* A side this buffer dropped because it left the monitor has no corner left
-	 * to round - without this a window sliding out rounds against the screen edge
-	 * instead of travelling past it. */
+	 * to round - without this a window sliding out rounds against the screen
+	 * edge instead of travelling past it. */
 	if (left != 0 || top != 0 || visible.width != dest_width ||
 		visible.height != dest_height) {
 		struct fx_corner_radii corners = buffer->corners;
@@ -589,8 +591,8 @@ static int32_t frame_origin_scale(int32_t frame_origin, int32_t value,
 }
 
 /*
- * Maps every snapshot rect from the frame it was taken at into the animated one.
- * A rect has no destination size, so its box, corner radii and hole are
+ * Maps every snapshot rect from the frame it was taken at into the animated
+ * one. A rect has no destination size, so its box, corner radii and hole are
  * recomputed from what was recorded at snapshot time.
  */
 static void scene_snapshot_scale_rects(struct wlr_scene_node *node,
@@ -629,11 +631,11 @@ static void scene_snapshot_scale_rects(struct wlr_scene_node *node,
 		corners.bottom_left = (uint16_t)(corners.bottom_left * scale);
 		wlr_scene_rect_set_corner_radii(rect, corners);
 
-		/* Only the border ring cuts a hole (the bar background is a plain rect - a
-		 * hole over its whole box would erase it). Its inset is a pixel or two to
-		 * start with, so clamping it to zero at any factor below 1 cuts the border
-		 * away on those sides; keep it at one pixel where there was one, and size
-		 * the hole from the shrunk box. */
+		/* Only the border ring cuts a hole (the bar background is a plain rect
+		 * - a hole over its whole box would erase it). Its inset is a pixel or
+		 * two to start with, so clamping it to zero at any factor below 1 cuts
+		 * the border away on those sides; keep it at one pixel where there was
+		 * one, and size the hole from the shrunk box. */
 		struct clipped_region hole = meta->orig_clipped_region;
 		if (hole.area.width > 0 && hole.area.height > 0) {
 			int32_t inset_x = hole.area.x > 0
@@ -702,9 +704,9 @@ void scene_snapshot_clip_to_box(struct wlr_scene_tree *snapshot,
 	};
 	scene_snapshot_enable_buffers(&snapshot->node);
 
-	/* The rects and wrappers are moved to this tick's positions before clipping:
-	 * the coverage walk below reads each buffer's place as it is, so clipping
-	 * first would use last frame's coordinates and open a seam. */
+	/* The rects and wrappers are moved to this tick's positions before
+	 * clipping: the coverage walk below reads each buffer's place as it is, so
+	 * clipping first would use last frame's coordinates and open a seam. */
 	if (scale) {
 		scene_snapshot_scale_rects(&snapshot->node, &clip);
 	}
@@ -742,8 +744,9 @@ static void scene_rect_fade(struct wlr_scene_node *node, double opacity) {
 }
 
 /*
- * Fades a snapshot by `opacity`: buffers through their own opacity, rects through
- * their colour (a plain buffer walk sees neither of the two rect decorations).
+ * Fades a snapshot by `opacity`: buffers through their own opacity, rects
+ * through their colour (a plain buffer walk sees neither of the two rect
+ * decorations).
  */
 void scene_snapshot_fade(struct wlr_scene_node *node, double opacity) {
 	if (!node) {

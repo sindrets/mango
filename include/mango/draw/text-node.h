@@ -172,13 +172,16 @@ typedef struct MangoBarDecoration {
 	bool corners_override;
 	struct fx_corner_radii corners;
 
-	/* The part of the bar still on screen (bar-local); zero size means no clip. */
+	/* The part of the bar still on screen (bar-local); zero size means no clip.
+	 */
 	struct wlr_box visible;
 
-	/* Edges to snap outwards to whole device pixels; prevents double antialiasing at shared edges. */
+	/* Edges to snap outwards to whole device pixels; prevents double
+	 * antialiasing at shared edges. */
 	uint32_t snap_edges;
 
-	/* Fade factor, applied to the rects' colours (a scene rect has no opacity of its own). */
+	/* Fade factor, applied to the rects' colours (a scene rect has no opacity
+	 * of its own). */
 	float opacity;
 
 } MangoBarDecoration;
@@ -243,7 +246,8 @@ bool mango_bar_decoration_buttons_contains(MangoBarDecoration *node, double lx,
 void mango_bar_decoration_set_corners(MangoBarDecoration *node,
 									  struct fx_corner_radii corners);
 
-/* Snap the bar's rect edges to whole device pixels (prevents double antialiasing at shared edges). */
+/* Snap the bar's rect edges to whole device pixels (prevents double
+ * antialiasing at shared edges). */
 void mango_bar_decoration_set_snap_edges(MangoBarDecoration *node,
 										 uint32_t edges);
 

@@ -585,8 +585,7 @@ void setup(void) {
 
 		if (cm) {
 			server.color_manager = cm;
-			server.color_client_wants_hdr.notify =
-				hdr_handle_client_wants_hdr;
+			server.color_client_wants_hdr.notify = hdr_handle_client_wants_hdr;
 			wl_signal_add(&cm->events.client_wants_hdr,
 						  &server.color_client_wants_hdr);
 			wlr_scene_set_color_manager_v1(server.scene, cm);

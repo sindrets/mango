@@ -293,9 +293,9 @@ void switcher_layout(void) {
 
 void switcher_apply_highlight(void) {
 	for (int i = 0; i < switcher_state.count; i++)
-		scene_rect_set_color(
-			switcher_state.tiles[i]->frame,
-			i == switcher_state.index ? config.focuscolor : config.bordercolor);
+		scene_rect_set_color(switcher_state.tiles[i]->frame,
+							 i == switcher_state.index ? config.focuscolor
+													   : config.bordercolor);
 }
 
 void switcher_close(void) {

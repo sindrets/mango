@@ -1010,16 +1010,16 @@ bool pointer_begin_move_resize(Client *gc, uint32_t mode, double x, double y,
 	server.grab_client = gc;
 	server.grab_is_border_resize = edge != 0;
 
-	/* The bar under the pointer is no longer hovered once a grab owns it: drop it
-	 * here so a button the drag started on isn't left highlighted after the grab
-	 * ends. */
+	/* The bar under the pointer is no longer hovered once a grab owns it: drop
+	 * it here so a button the drag started on isn't left highlighted after the
+	 * grab ends. */
 	if (server.title_bar_hover) {
 		mango_bar_decoration_set_button_hover(server.title_bar_hover, 0, false);
 		server.title_bar_hover = NULL;
 	}
 	if (server.title_bar_buttons_hover) {
 		mango_bar_decoration_set_buttons_hover(server.title_bar_buttons_hover,
-											 false);
+											   false);
 		server.title_bar_buttons_hover = NULL;
 	}
 	if (server.group_bar_hover) {

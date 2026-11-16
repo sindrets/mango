@@ -2741,10 +2741,12 @@ void set_value_default() {
 	config.title_message_bardata.border_width = 0;
 	config.title_message_bardata.corner_radius = 15;
 
-	/* The title bar inherits the frame's colors and carries no outline of its own
-	 * - its radius comes from the window on every draw - so neither can be set
-	 * here. Both are zeroed rather than left at the group bar's values because
-	 * DecorateDrawData is shared with the bars that do draw their own outline. */
+	/* The title bar inherits the frame's colors and carries no outline of its
+	 * own - its radius comes from the window on every draw - so neither can be
+	 * set here. Both are zeroed rather than left at the group bar's values
+	 * because DecorateDrawData is shared with the bars that do draw their own
+	 * outline.
+	 */
 	config.title_bardata = config.groupbardata;
 	config.title_bardata.border_width = 0;
 	config.title_bardata.corner_radius = 0;
