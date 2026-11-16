@@ -110,13 +110,13 @@ neither is settable here.
 | `title_bar_button_size` | `12` | Traffic light diameter in px. |
 | `title_bar_button_gap` | `8` | Space between two traffic lights in px. |
 | `title_bar_button_margin` | `10` | Traffic light inset from the bar edge in px. |
-| `title_bar_decorate_fg_color` | `0xc0caf5ff` | Text color. |
-| `title_bar_decorate_bg_color` | `0x32302fff` | Background color. |
-| `title_bar_decorate_focus_fg_color` | `0x9ece6aff` | Text color while focused. |
-| `title_bar_decorate_focus_bg_color` | `0x1d2021ff` | Background color while focused. |
+| `title_bar_decorate_fg_color` | `0xffffff99` | Text color. |
+| `title_bar_decorate_bg_color` | `0x262626ff` | Background color. |
+| `title_bar_decorate_focus_fg_color` | `0xffffffff` | Text color while focused. |
+| `title_bar_decorate_focus_bg_color` | `0x1e1e1eff` | Background color while focused. |
 | `title_bar_decorate_padding_x` | `0` | Horizontal padding. |
 | `title_bar_decorate_padding_y` | `0` | Vertical padding. |
-| `title_bar_decorate_font_desc` | `monospace Bold 13` | Font description. |
+| `title_bar_decorate_font_desc` | `sans-serif 9` | Font description. |
 
 ### Auto Tab Bar
 | Setting | Default | Description |
