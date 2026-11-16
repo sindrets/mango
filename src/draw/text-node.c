@@ -199,6 +199,26 @@ static void rect_apply_border(struct wlr_scene_rect *rect, const float color[4],
 #endif
 }
 
+/* Text is drawn into a premultiplied ARGB buffer that the renderer samples as
+ * a plain texture. Fontconfig defaults it to LCD (subpixel) antialiasing, which
+ * encodes per-channel coverage on the assumption that the three channels map to
+ * three adjacent physical subpixels. Once the buffer is scaled, composited and
+ * filtered by the GPU that assumption is gone, and the coverage that survives is
+ * visible colour fringing. Force grayscale coverage; hinting is still taken from
+ * fontconfig. */
+static void text_context_configure(PangoContext *context, cairo_t *cr) {
+	cairo_font_options_t *options = cairo_font_options_create();
+	cairo_get_font_options(cr, options);
+
+	if (cairo_font_options_get_antialias(options) != CAIRO_ANTIALIAS_NONE) {
+		cairo_font_options_set_antialias(options, CAIRO_ANTIALIAS_GRAY);
+	}
+	cairo_font_options_set_subpixel_order(options, CAIRO_SUBPIXEL_ORDER_DEFAULT);
+
+	pango_cairo_context_set_font_options(context, options);
+	cairo_font_options_destroy(options);
+}
+
 static void layout_configure(PangoLayout *layout, const char *font_desc,
 							 const char *text) {
 	pango_layout_set_font_description(layout, get_cached_font_desc(font_desc));
@@ -209,6 +229,7 @@ static void measure_init(struct mango_text_measure *measure) {
 	measure->surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
 	measure->cr = cairo_create(measure->surface);
 	measure->context = pango_cairo_create_context(measure->cr);
+	text_context_configure(measure->context, measure->cr);
 	measure->layout = pango_layout_new(measure->context);
 	measure->scale = 1.0f;
 }
@@ -339,6 +360,7 @@ text_surface_create(struct mango_text_measure *measure, const char *font_desc,
 	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
 
 	PangoContext *context = pango_cairo_create_context(cr);
+	text_context_configure(context, cr);
 	pango_cairo_context_set_resolution(context, 96.0 * scale);
 	PangoLayout *layout = pango_layout_new(context);
 	layout_configure(layout, font_desc, text);
