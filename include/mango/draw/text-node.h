@@ -93,6 +93,7 @@ typedef struct MangoBarButton {
 	float cached_scale;
 	bool cached_hover;
 	bool cached_focused;
+	bool cached_buttons_hover;
 	bool cached_valid;
 } MangoBarButton;
 
@@ -163,6 +164,8 @@ typedef struct MangoBarDecoration {
 	int32_t button_gap;
 	int32_t button_margin;
 	int32_t hover_button;
+	/* The pointer is anywhere on the button strip. */
+	bool buttons_hover;
 	MangoBarButton buttons[MANGO_BAR_BUTTON_COUNT];
 
 	bool corners_override;
@@ -228,8 +231,12 @@ void mango_bar_decoration_set_button_color(MangoBarDecoration *node,
 										   const float circle[4]);
 void mango_bar_decoration_set_button_hover(MangoBarDecoration *node,
 										   int32_t button, bool hover);
+void mango_bar_decoration_set_buttons_hover(MangoBarDecoration *node,
+											bool hover);
 int32_t mango_bar_decoration_button_at(MangoBarDecoration *node, double lx,
 									   double ly);
+bool mango_bar_decoration_buttons_contains(MangoBarDecoration *node, double lx,
+										   double ly);
 
 /* Override the bar's corner radii so they match the window border's. */
 void mango_bar_decoration_set_corners(MangoBarDecoration *node,

@@ -4610,6 +4610,8 @@ void client_remove_title_bar(Client *c) {
 		return;
 	if (server.title_bar_hover == c->title_bar)
 		server.title_bar_hover = NULL;
+	if (server.title_bar_buttons_hover == c->title_bar)
+		server.title_bar_buttons_hover = NULL;
 	if (server.title_bar_drag_client == c) {
 		server.title_bar_drag_client = NULL;
 		server.title_bar_drag_pending = false;

@@ -1017,6 +1017,11 @@ bool pointer_begin_move_resize(Client *gc, uint32_t mode, double x, double y,
 		mango_bar_decoration_set_button_hover(server.title_bar_hover, 0, false);
 		server.title_bar_hover = NULL;
 	}
+	if (server.title_bar_buttons_hover) {
+		mango_bar_decoration_set_buttons_hover(server.title_bar_buttons_hover,
+											 false);
+		server.title_bar_buttons_hover = NULL;
+	}
 	if (server.group_bar_hover) {
 		mango_bar_decoration_set_close_hover(server.group_bar_hover, false);
 		server.group_bar_hover = NULL;
@@ -1283,6 +1288,8 @@ void pointer_process_motion(uint32_t time, struct wlr_input_device *device,
 	node_at_point(server.cursor->x, server.cursor->y, &surface, &c, NULL, &bar,
 				  &sx, &sy);
 
+	MangoBarDecoration *buttons_hover = NULL;
+
 	/* While a grab owns the pointer the bar under it is not really hovered. */
 	if (server.cursor_mode != CurMove && server.cursor_mode != CurResize) {
 		MangoBarDecoration *hover = NULL;
@@ -1299,6 +1306,10 @@ void pointer_process_motion(uint32_t time, struct wlr_input_device *device,
 			} else if (mango_bar_decoration_close_contains(bar, lx, ly)) {
 				hover = bar;
 			}
+			/* The whole strip wakes the lights up, gaps included, even when no
+			 * single disc is under the pointer. */
+			if (mango_bar_decoration_buttons_contains(bar, lx, ly))
+				buttons_hover = bar;
 		}
 
 		/* Group/tab bars keep their single close button in
@@ -1323,6 +1334,15 @@ void pointer_process_motion(uint32_t time, struct wlr_input_device *device,
 		if (bar && bar->type == TitleBar)
 			mango_bar_decoration_set_button_hover(bar, hover_button,
 												  hover_button >= 0);
+	}
+
+	if (server.title_bar_buttons_hover != buttons_hover) {
+		if (server.title_bar_buttons_hover)
+			mango_bar_decoration_set_buttons_hover(
+				server.title_bar_buttons_hover, false);
+		if (buttons_hover)
+			mango_bar_decoration_set_buttons_hover(buttons_hover, true);
+		server.title_bar_buttons_hover = buttons_hover;
 	}
 
 	if (server.cursor_mode == CurPressed && !server.seat->drag &&

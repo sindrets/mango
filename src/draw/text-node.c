@@ -911,14 +911,16 @@ static void bar_button_render(MangoBarDecoration *node, int32_t index,
 	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
 
 	double center = pixel / 2.0;
-	const float *circle = !node->focused
-							  ? bar_button_unfocused_color
-							  : (hover ? button->hover_color : button->color);
+	/* A hovered window wakes the lights up: hovering the strip counts as
+	 * focused, so the discs stay colorful and the icons appear. */
+	bool lit = node->focused || node->buttons_hover;
+	const float *circle = !lit ? bar_button_unfocused_color
+							   : (hover ? button->hover_color : button->color);
 	cairo_set_source_rgba(cr, circle[0], circle[1], circle[2], circle[3]);
 	cairo_arc(cr, center, center, center, 0, 2 * 3.14159265358979323846);
 	cairo_fill(cr);
 
-	if (!node->focused) {
+	if (!lit) {
 		cairo_surface_flush(surface);
 		cairo_destroy(cr);
 		text_node_install(button->scene_buffer, &button->texture, surface,
@@ -926,6 +928,7 @@ static void bar_button_render(MangoBarDecoration *node, int32_t index,
 		button->cached_size = size;
 		button->cached_scale = scale;
 		button->cached_hover = hover;
+		button->cached_buttons_hover = node->buttons_hover;
 		button->cached_focused = node->focused;
 		button->cached_valid = true;
 		return;
@@ -975,6 +978,7 @@ static void bar_button_render(MangoBarDecoration *node, int32_t index,
 	button->cached_size = size;
 	button->cached_scale = scale;
 	button->cached_hover = hover;
+	button->cached_buttons_hover = node->buttons_hover;
 	button->cached_focused = node->focused;
 	button->cached_valid = true;
 }
@@ -1003,6 +1007,7 @@ static void bar_buttons_sync(MangoBarDecoration *node) {
 		bool hover = node->hover_button == i;
 		if (!button->cached_valid || button->cached_size != size ||
 			button->cached_scale != scale || button->cached_hover != hover ||
+			button->cached_buttons_hover != node->buttons_hover ||
 			button->cached_focused != node->focused) {
 			bar_button_render(node, i, size, pixel, scale, hover);
 		}
@@ -1081,7 +1086,8 @@ void mango_bar_decoration_set_opacity(MangoBarDecoration *node, float opacity) {
 	}
 	node->opacity = opacity;
 
-	/* Buffers carry their own opacity; the rects get theirs via the geometry pass. */
+	/* Buffers carry their own opacity; the rects get theirs via the geometry
+	 * pass. */
 	wlr_scene_buffer_set_opacity(node->scene_buffer, opacity);
 	wlr_scene_buffer_set_opacity(node->close_buffer, opacity);
 	for (int32_t i = 0; i < MANGO_BAR_BUTTON_COUNT; i++) {
@@ -1563,8 +1569,10 @@ void mango_bar_decoration_set_buttons(MangoBarDecoration *node, bool enabled,
 	node->button_gap = gap;
 	node->button_margin = margin;
 
-	if (!enabled)
+	if (!enabled) {
 		node->hover_button = -1;
+		node->buttons_hover = false;
+	}
 
 	if (node->last_text) {
 		float scale = node->last_scale > 0.0f ? node->last_scale : 1.0f;
@@ -1602,7 +1610,6 @@ void mango_bar_decoration_set_button_hover(MangoBarDecoration *node,
 	node->hover_button = next;
 	bar_buttons_sync(node);
 }
-
 int32_t mango_bar_decoration_button_at(MangoBarDecoration *node, double lx,
 									   double ly) {
 	if (!node)
@@ -1616,6 +1623,69 @@ int32_t mango_bar_decoration_button_at(MangoBarDecoration *node, double lx,
 			return i;
 	}
 	return -1;
+}
+
+/* Footprint of the whole strip, gaps included: the union of every button box.
+ * Index 0 is not necessarily the leftmost, so take a min/max over all of them.
+ */
+static bool bar_buttons_bounds(const MangoBarDecoration *node, int32_t *out_x0,
+							   int32_t *out_y0, int32_t *out_x1,
+							   int32_t *out_y1) {
+	bool any = false;
+	int32_t x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+
+	for (int32_t i = 0; i < MANGO_BAR_BUTTON_COUNT; i++) {
+		int32_t x = 0, y = 0, size = 0;
+		if (!bar_button_box(node, i, &x, &y, &size))
+			continue;
+
+		if (!any) {
+			x0 = x;
+			x1 = x + size;
+			y0 = y;
+			y1 = y + size;
+			any = true;
+			continue;
+		}
+		if (x < x0)
+			x0 = x;
+		if (x + size > x1)
+			x1 = x + size;
+		if (y < y0)
+			y0 = y;
+		if (y + size > y1)
+			y1 = y + size;
+	}
+
+	if (!any)
+		return false;
+
+	*out_x0 = x0;
+	*out_y0 = y0;
+	*out_x1 = x1;
+	*out_y1 = y1;
+	return true;
+}
+
+bool mango_bar_decoration_buttons_contains(MangoBarDecoration *node, double lx,
+										   double ly) {
+	if (!node)
+		return false;
+
+	int32_t x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+	if (!bar_buttons_bounds(node, &x0, &y0, &x1, &y1))
+		return false;
+
+	return lx >= x0 && lx < x1 && ly >= y0 && ly < y1;
+}
+
+void mango_bar_decoration_set_buttons_hover(MangoBarDecoration *node,
+											bool hover) {
+	if (!node || node->buttons_hover == hover)
+		return;
+
+	node->buttons_hover = hover;
+	bar_buttons_sync(node);
 }
 
 void mango_jump_label_node_apply_config(MangoJumpLabel *node,

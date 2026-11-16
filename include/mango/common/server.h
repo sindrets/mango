@@ -158,6 +158,8 @@ struct MangoServer {
 	Client *title_bar_drag_client;
 	double title_bar_drag_x, title_bar_drag_y;
 	MangoBarDecoration *title_bar_hover;
+	/* Bar whose traffic-light strip the pointer is on, gaps included. */
+	MangoBarDecoration *title_bar_buttons_hover;
 
 	/* Outputs / monitors */
 	struct wlr_output_layout *output_layout;

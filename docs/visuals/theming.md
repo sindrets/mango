@@ -93,8 +93,8 @@ radius wraps it and the bar and body read as one piece. It carries three
 traffic lights on the left (close, minimize, maximize), with the window title
 centered in the remaining room. Dragging the bar moves the window. Hide it for
 specific windows with the `no_title_bar` window rule. The traffic lights are
-colored only while the window is focused; otherwise they are flat grey discs
-with no icons.
+colored while the window is focused, and while the pointer hovers the button
+container.
 
 The rounded corners come from scenefx. Built against plain wlroots the bar is
 still drawn and positioned, but its corners and the window's are square.
