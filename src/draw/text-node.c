@@ -22,7 +22,8 @@
 /* Min-gap between buttons and title text. */
 #define BAR_BUTTON_TEXT_GAP 10
 
-/* Longest a title is allowed to get before it is ellipsized, in logical pixels. */
+/* Longest a title is allowed to get before it is ellipsized, in logical pixels.
+ */
 #define BAR_TEXT_MAX_WIDTH 900
 
 static GHashTable *font_desc_cache = NULL;
@@ -210,9 +211,9 @@ static void rect_apply_border(struct wlr_scene_rect *rect, const float color[4],
  * a plain texture. Fontconfig defaults it to LCD (subpixel) antialiasing, which
  * encodes per-channel coverage on the assumption that the three channels map to
  * three adjacent physical subpixels. Once the buffer is scaled, composited and
- * filtered by the GPU that assumption is gone, and the coverage that survives is
- * visible colour fringing. Force grayscale coverage; hinting is still taken from
- * fontconfig. */
+ * filtered by the GPU that assumption is gone, and the coverage that survives
+ * is visible colour fringing. Force grayscale coverage; hinting is still taken
+ * from fontconfig. */
 static void text_context_configure(PangoContext *context, cairo_t *cr) {
 	cairo_font_options_t *options = cairo_font_options_create();
 	cairo_get_font_options(cr, options);
@@ -220,7 +221,8 @@ static void text_context_configure(PangoContext *context, cairo_t *cr) {
 	if (cairo_font_options_get_antialias(options) != CAIRO_ANTIALIAS_NONE) {
 		cairo_font_options_set_antialias(options, CAIRO_ANTIALIAS_GRAY);
 	}
-	cairo_font_options_set_subpixel_order(options, CAIRO_SUBPIXEL_ORDER_DEFAULT);
+	cairo_font_options_set_subpixel_order(options,
+										  CAIRO_SUBPIXEL_ORDER_DEFAULT);
 
 	pango_cairo_context_set_font_options(context, options);
 	cairo_font_options_destroy(options);
@@ -258,7 +260,8 @@ static int32_t logical_ceil_to_device(float scale, int32_t pixel) {
 	return logical;
 }
 
-/* Largest logical length whose device size stays within `pixel` device pixels. */
+/* Largest logical length whose device size stays within `pixel` device pixels.
+ */
 static int32_t logical_floor_to_device(float scale, int32_t pixel) {
 	if (scale <= 0.0f || pixel <= 0) {
 		return 0;
@@ -418,8 +421,10 @@ text_surface_create(struct mango_text_measure *measure, const char *font_desc,
 	 * scene will reproduce exactly, or the texture gets resampled. Grow the
 	 * surface to the next size that survives the trip; the extra space is
 	 * transparent. */
-	int32_t surface_w = device_length(scale, logical_ceil_to_device(scale, width));
-	int32_t surface_h = device_length(scale, logical_ceil_to_device(scale, height));
+	int32_t surface_w =
+		device_length(scale, logical_ceil_to_device(scale, width));
+	int32_t surface_h =
+		device_length(scale, logical_ceil_to_device(scale, height));
 
 	cairo_surface_t *surface =
 		cairo_image_surface_create(CAIRO_FORMAT_ARGB32, surface_w, surface_h);
@@ -563,10 +568,10 @@ static void text_node_apply_size(struct wlr_scene_buffer *scene_buffer,
 		clip_pixel_h = 0;
 	}
 
-	/* Pick a logical size whose device size is exact and fits inside the segment
-	 * we are allowed to show, then clip the source box to exactly that many
-	 * device pixels. Source and destination then line up 1:1 and the texture is
-	 * never resampled. */
+	/* Pick a logical size whose device size is exact and fits inside the
+	 * segment we are allowed to show, then clip the source box to exactly that
+	 * many device pixels. Source and destination then line up 1:1 and the
+	 * texture is never resampled. */
 	int32_t logical_w = logical_floor_to_device(scale, clip_pixel_w);
 	int32_t logical_h = logical_floor_to_device(scale, clip_pixel_h);
 	int32_t src_pixel_w = device_length(scale, logical_w);
@@ -1538,8 +1543,8 @@ void mango_bar_decoration_update(MangoBarDecoration *node, const char *text,
 		avail_w = BAR_TEXT_MAX_WIDTH;
 	}
 	/* Compare and ellipsize in the device pixels the layout can actually use.
-	 * An exact logical width is what survives transport, so budgeting against the
-	 * raw scaled width could drop a character that in fact fits. */
+	 * An exact logical width is what survives transport, so budgeting against
+	 * the raw scaled width could drop a character that in fact fits. */
 	int32_t avail_exact_w = avail_w - avail_w % scale_denominator(scale);
 	int32_t avail_pixel_w = device_length(scale, avail_exact_w);
 
