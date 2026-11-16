@@ -107,6 +107,7 @@ neither is settable here.
 | :--- | :--- | :--- |
 | `title_bar_height` | `30` | Title bar height. Set to `0` to disable title bars. |
 | `title_bar_buttons_left` | `1` | Place the traffic lights on the left (`1`) or the right (`0`). |
+| `title_bar_buttons_inverse` | `0` | Invert the button order. |
 | `title_bar_button_size` | `12` | Traffic light diameter in px. |
 | `title_bar_button_gap` | `8` | Space between two traffic lights in px. |
 | `title_bar_button_margin` | `10` | Traffic light inset from the bar edge in px. |

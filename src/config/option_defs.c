@@ -1008,6 +1008,8 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		config->title_bar_button_margin = atoi(value);
 	} else if (strcmp(key, "title_bar_buttons_left") == 0) {
 		config->title_bar_buttons_left = atoi(value);
+	} else if (strcmp(key, "title_bar_buttons_inverse") == 0) {
+		config->title_bar_buttons_inverse = atoi(value);
 	} else if (strcmp(key, "always_show_group_bar") == 0) {
 		config->always_show_group_bar = atoi(value);
 	} else if (strcmp(key, "group_bar_close_button_enable") == 0) {
@@ -2601,6 +2603,7 @@ void set_value_default() {
 	config.title_bar_button_gap = 8;
 	config.title_bar_button_margin = 10;
 	config.title_bar_buttons_left = 1;
+	config.title_bar_buttons_inverse = 0;
 	config.overviewgappi = 5;
 	config.overviewgappo = 30;
 	config.overcircle_center_ratio = 0.5f;
@@ -3077,6 +3080,8 @@ void override_config(void) {
 		CLAMP_INT(config.title_bar_button_margin, 0, 64);
 	config.title_bar_buttons_left =
 		CLAMP_INT(config.title_bar_buttons_left, 0, 1);
+	config.title_bar_buttons_inverse =
+		CLAMP_INT(config.title_bar_buttons_inverse, 0, 1);
 	config.smartgaps = CLAMP_INT(config.smartgaps, 0, 1);
 	config.blur = CLAMP_INT(config.blur, 0, 1);
 	config.blur_layer = CLAMP_INT(config.blur_layer, 0, 1);

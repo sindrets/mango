@@ -511,6 +511,7 @@ typedef struct {
 	int32_t title_bar_button_gap;
 	int32_t title_bar_button_margin;
 	int32_t title_bar_buttons_left;
+	int32_t title_bar_buttons_inverse;
 	float scratchpad_width_ratio;
 	float scratchpad_height_ratio;
 	float special_dim;

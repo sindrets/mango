@@ -870,11 +870,14 @@ static bool bar_button_box(const MangoBarDecoration *node, int32_t index,
 		margin = space;
 
 	*out_size = size;
-	/* Left: close, minimize, maximize from the left edge.
-	 * Right: invert the button order. */
-	int32_t x = node->buttons_left ? margin + index * (size + node->button_gap)
+	/* The strip hangs off the left or the right edge (buttons_left) and lists
+	 * close, minimize, maximize inwards from that edge, or in the reverse order
+	 * when buttons_inverse is set. */
+	int32_t slot =
+		node->buttons_inverse ? MANGO_BAR_BUTTON_COUNT - 1 - index : index;
+	int32_t x = node->buttons_left ? margin + slot * (size + node->button_gap)
 								   : node->target_width - margin - size -
-										 index * (size + node->button_gap);
+										 slot * (size + node->button_gap);
 	/* Clamp inside the bar: on a narrow bar the button strip can be wider
 	 * than the bar itself. */
 	int32_t room = node->target_width - size;
@@ -1554,17 +1557,18 @@ bool mango_bar_decoration_close_contains(MangoBarDecoration *node, double lx,
 }
 
 void mango_bar_decoration_set_buttons(MangoBarDecoration *node, bool enabled,
-									  bool left, int32_t size, int32_t gap,
-									  int32_t margin) {
+									  bool left, bool inverse, int32_t size,
+									  int32_t gap, int32_t margin) {
 	if (!node)
 		return;
 	if (node->buttons_enabled == enabled && node->buttons_left == left &&
-		node->button_size == size && node->button_gap == gap &&
-		node->button_margin == margin)
+		node->buttons_inverse == inverse && node->button_size == size &&
+		node->button_gap == gap && node->button_margin == margin)
 		return;
 
 	node->buttons_enabled = enabled;
 	node->buttons_left = left;
+	node->buttons_inverse = inverse;
 	node->button_size = size;
 	node->button_gap = gap;
 	node->button_margin = margin;

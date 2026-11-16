@@ -4597,6 +4597,7 @@ void client_add_title_bar(Client *c) {
 	wlr_scene_node_raise_to_top(&c->title_bar->scene->node);
 	mango_bar_decoration_set_buttons(c->title_bar, true,
 									 config.title_bar_buttons_left != 0,
+									 config.title_bar_buttons_inverse != 0,
 									 (int32_t)config.title_bar_button_size,
 									 (int32_t)config.title_bar_button_gap,
 									 (int32_t)config.title_bar_button_margin);
@@ -4652,6 +4653,7 @@ void client_set_title_bar_config(Client *c) {
 	mango_bar_decoration_apply_config(c->title_bar, &config.title_bardata);
 	mango_bar_decoration_set_buttons(c->title_bar, true,
 									 config.title_bar_buttons_left != 0,
+									 config.title_bar_buttons_inverse != 0,
 									 (int32_t)config.title_bar_button_size,
 									 (int32_t)config.title_bar_button_gap,
 									 (int32_t)config.title_bar_button_margin);

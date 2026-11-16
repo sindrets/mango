@@ -160,6 +160,7 @@ typedef struct MangoBarDecoration {
 	/* Traffic-light button state. */
 	bool buttons_enabled;
 	bool buttons_left;
+	bool buttons_inverse;
 	int32_t button_size;
 	int32_t button_gap;
 	int32_t button_margin;
@@ -224,8 +225,8 @@ bool mango_bar_decoration_close_contains(MangoBarDecoration *node, double lx,
 										 double ly);
 
 void mango_bar_decoration_set_buttons(MangoBarDecoration *node, bool enabled,
-									  bool left, int32_t size, int32_t gap,
-									  int32_t margin);
+									  bool left, bool inverse, int32_t size,
+									  int32_t gap, int32_t margin);
 void mango_bar_decoration_set_button_color(MangoBarDecoration *node,
 										   int32_t button,
 										   const float circle[4]);
