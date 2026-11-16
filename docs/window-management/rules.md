@@ -67,6 +67,7 @@ window_rule_once=Parameter:Values,Parameter:Values,app_id:Values,title:Values
 | `no_border` | integer | `0` / `1` | Remove window border |
 | `no_shadow` | integer | `0` / `1` | Not apply shadow |
 | `no_radius` | integer | `0` / `1` | Not apply corner radius |
+| `no_title_bar` | integer | `0` / `1` | Do not draw the title bar |
 | `no_animation` | integer | `0` / `1` | Not apply animation |
 | `focused_opacity` | integer | `0` / `1` | Window focused opacity |
 | `unfocused_opacity` | integer | `0` / `1` | Window unfocused opacity |

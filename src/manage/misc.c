@@ -279,7 +279,8 @@ void node_at_point(double x, double y, struct wlr_surface **psurface,
 			if (data->type == LayerShell) {
 				l = data->owner;
 			} else if (data->type == GroupBar || data->type == TabBar ||
-					   data->type == TitleMessageBar) {
+					   data->type == TitleMessageBar ||
+					   data->type == TitleBar) {
 				mangobar = data->owner;
 			} else if (data->type == XDGShell || data->type == X11) {
 				c = data->owner;

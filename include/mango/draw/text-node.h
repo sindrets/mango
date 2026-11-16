@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #if defined(__has_include) && __has_include(<scenefx/types/wlr_scene.h>)
+#include <scenefx/types/fx/clipped_region.h>
 #include <scenefx/types/wlr_scene.h>
 #else
 #include <wlr/types/wlr_scene.h>
@@ -74,6 +75,28 @@ typedef struct MangoJumpLabel {
 	int32_t logical_height;
 } MangoJumpLabel;
 
+/* Traffic-light buttons of a title bar, in drawing order. */
+enum {
+	MANGO_BAR_BUTTON_CLOSE,
+	MANGO_BAR_BUTTON_MINIMIZE,
+	MANGO_BAR_BUTTON_MAXIMIZE,
+	MANGO_BAR_BUTTON_COUNT,
+};
+
+typedef struct MangoBarButton {
+	struct wlr_scene_buffer *scene_buffer;
+	struct mango_text_buffer *texture;
+	float color[4];
+	float hover_color[4];
+	float glyph_color[4];
+	int32_t cached_size;
+	float cached_scale;
+	bool cached_hover;
+	bool cached_focused;
+	bool cached_buttons_hover;
+	bool cached_valid;
+} MangoBarButton;
+
 typedef struct MangoBarDecoration {
 	uint32_t type;
 	bool is_tab;
@@ -133,6 +156,34 @@ typedef struct MangoBarDecoration {
 	float close_cached_scale;
 	bool close_cached_hover;
 	bool close_cached_valid;
+
+	/* Traffic-light button state. */
+	bool buttons_enabled;
+	bool buttons_left;
+	bool buttons_inverse;
+	int32_t button_size;
+	int32_t button_gap;
+	int32_t button_margin;
+	int32_t hover_button;
+	/* The pointer is anywhere on the button strip. */
+	bool buttons_hover;
+	MangoBarButton buttons[MANGO_BAR_BUTTON_COUNT];
+
+	bool corners_override;
+	struct fx_corner_radii corners;
+
+	/* The part of the bar still on screen (bar-local); zero size means no clip.
+	 */
+	struct wlr_box visible;
+
+	/* Edges to snap outwards to whole device pixels; prevents double
+	 * antialiasing at shared edges. */
+	uint32_t snap_edges;
+
+	/* Fade factor, applied to the rects' colours (a scene rect has no opacity
+	 * of its own). */
+	float opacity;
+
 } MangoBarDecoration;
 
 void mango_text_global_finish(void);
@@ -176,6 +227,36 @@ void mango_bar_decoration_set_close_hover(MangoBarDecoration *node, bool hover);
 bool mango_bar_decoration_close_contains(MangoBarDecoration *node, double lx,
 										 double ly);
 
+void mango_bar_decoration_set_buttons(MangoBarDecoration *node, bool enabled,
+									  bool left, bool inverse, int32_t size,
+									  int32_t gap, int32_t margin);
+void mango_bar_decoration_set_button_color(MangoBarDecoration *node,
+										   int32_t button,
+										   const float circle[4]);
+void mango_bar_decoration_set_button_hover(MangoBarDecoration *node,
+										   int32_t button, bool hover);
+void mango_bar_decoration_set_buttons_hover(MangoBarDecoration *node,
+											bool hover);
+int32_t mango_bar_decoration_button_at(MangoBarDecoration *node, double lx,
+									   double ly);
+bool mango_bar_decoration_buttons_contains(MangoBarDecoration *node, double lx,
+										   double ly);
+
+/* Override the bar's corner radii so they match the window border's. */
+void mango_bar_decoration_set_corners(MangoBarDecoration *node,
+									  struct fx_corner_radii corners);
+
+/* Snap the bar's rect edges to whole device pixels (prevents double
+ * antialiasing at shared edges). */
+void mango_bar_decoration_set_snap_edges(MangoBarDecoration *node,
+										 uint32_t edges);
+
+/* Paint only the visible part of the bar; zero width/height means no clip. */
+void mango_bar_decoration_set_visible(MangoBarDecoration *node, int32_t x,
+									  int32_t y, int32_t width, int32_t height);
+
+/* Fade the bar (applied to the rects' colours). */
+void mango_bar_decoration_set_opacity(MangoBarDecoration *node, float opacity);
 void mango_jump_label_node_apply_config(MangoJumpLabel *node,
 										const DecorateDrawData *data);
 void mango_bar_decoration_apply_config(MangoBarDecoration *node,

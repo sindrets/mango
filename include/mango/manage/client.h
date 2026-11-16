@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <wayland-server-core.h>
 #include <wlr/util/box.h>
+#include <wlr/util/edges.h>
 
 /* Client / surface kinds stored in Client.type, LayerSurface.type, Popup.type
  * and SnapshotMetadata.type. */
@@ -23,7 +24,8 @@ enum {
 	XdgImPopup,
 	GroupBar,
 	TabBar,
-	TitleMessageBar
+	TitleMessageBar,
+	TitleBar
 }; /* client types */
 
 #ifdef XWAYLAND
@@ -165,6 +167,7 @@ struct Client {
 	int32_t no_border;
 	int32_t no_shadow;
 	int32_t no_radius;
+	int32_t no_title_bar;
 	int32_t no_animation;
 	int32_t isopensilent;
 	int32_t istagsilent;
@@ -239,6 +242,10 @@ struct Client {
 	Client *tab_next;
 	bool is_tab_focus;
 	bool is_tab_hidden;
+	/* MacOS-like title bar: drawn inside the top of the window frame, its
+	 * height taken out of the surface so the border radius wraps the bar and
+	 * the surface as a single piece. */
+	MangoBarDecoration *title_bar;
 
 	/* arrange verdict: window belongs to the current view */
 	bool tag_visible;
@@ -455,6 +462,15 @@ bool client_wants_group_bar(Client *c);
 void client_update_group_bar_title(Client *c);
 void client_set_group_bar_config(Client *c);
 void client_remove_group_bar(Client *c);
+
+/* Title bar */
+bool client_wants_title_bar(Client *c);
+int32_t client_title_bar_height(Client *c);
+void client_add_title_bar(Client *c);
+void client_remove_title_bar(Client *c);
+void client_update_title_bar_title(Client *c);
+void client_update_title_bar_focus(Client *c);
+void client_set_title_bar_config(Client *c);
 bool client_group_swap_focus(Client *c);
 void client_focus_group_member(Client *c);
 void client_check_tab_node_visible(Client *c);

@@ -195,7 +195,7 @@ void client_get_clip(Client *c, struct wlr_box *clip) {
 		.x = 0,
 		.y = 0,
 		.width = c->geom.width - 2 * c->bw,
-		.height = c->geom.height - 2 * c->bw,
+		.height = c->geom.height - 2 * c->bw - client_title_bar_height(c),
 	};
 
 #ifdef XWAYLAND
@@ -373,12 +373,23 @@ void client_send_close(Client *c) {
 	wlr_xdg_toplevel_send_close(c->surface.xdg->toplevel);
 }
 void client_set_border_color(Client *c, const float color[4]) {
-	scene_rect_set_color(c->border, color);
+	/* The ring is a scene rect with no opacity: fades reach it through the
+	 * alpha of its colour, so scale here - at the one place the colour is
+	 * written - so a recolor cannot cancel an animating fade. */
+	float faded[4];
+	memcpy(faded, color, sizeof(faded));
+	faded[3] *= c->opacity_animation.current_opacity;
+	scene_rect_set_color(c->border, faded);
 }
 
 void client_set_state_colors(Client *c, const float border_color[4],
 							 const float dim_color[4]) {
 	client_set_border_color(c, border_color);
+
+	/* The bar's focus decoration must agree with the border colour; every path
+	 * that recolours the border goes through here, so drive the bar from the
+	 * same place. */
+	client_update_title_bar_focus(c);
 
 	if (c->dim_node) {
 		mango_dim_node_set_color(c->dim_node, dim_color);
@@ -477,17 +488,16 @@ void client_update_xwayland_clip(Client *c, struct wlr_box *clip) {
 
 	/* Buffer origin (client area) and its logical size. */
 	int32_t win_x = c->geom.x + (int32_t)c->bw;
-	int32_t win_y = c->geom.y + (int32_t)c->bw;
+	int32_t win_y = c->geom.y + (int32_t)c->bw + client_title_bar_height(c);
 	int32_t inner_w = c->geom.width - 2 * (int32_t)c->bw;
-	int32_t inner_h = c->geom.height - 2 * (int32_t)c->bw;
+	int32_t inner_h =
+		c->geom.height - 2 * (int32_t)c->bw - client_title_bar_height(c);
 
 	/*
-	 * Whole window visible: sample it exactly as the scene draws it, so a
-	 * fractional scale cannot stretch the buffer by one pixel. When the scene
-	 * draws the window one pixel wider or taller than the buffer, nearest
-	 * filtering repeats a pixel instead of interpolating it (sampling outside
-	 * the buffer is not allowed). A buffer that did not keep up with the window
-	 * (mid-resize) is scaled instead.
+	 * Whole window visible: sample it exactly as the scene draws it - one pixel
+	 * off and nearest filtering repeats a pixel instead of interpolating it
+	 * (sampling outside the buffer is not allowed). Buffers that did not keep
+	 * up mid-resize are scaled instead.
 	 */
 	struct wlr_fbox src;
 	bool nearest = false;
@@ -590,7 +600,7 @@ void client_update_xwayland_dest_size(Client *c) {
 	} else {
 		struct wlr_box cur = c->animation.current;
 		w = cur.width - 2 * (int32_t)c->bw;
-		h = cur.height - 2 * (int32_t)c->bw;
+		h = cur.height - 2 * (int32_t)c->bw - client_title_bar_height(c);
 	}
 	if (w > 0 && h > 0) {
 		wlr_scene_buffer_set_dest_size(c->xwl_root_buffer, w, h);
@@ -858,6 +868,7 @@ bool client_request_maximize(Client *c, void *data) {
 void client_set_size_bound(Client *c) {
 	struct wlr_xdg_toplevel *toplevel;
 	struct wlr_xdg_toplevel_state state;
+	int32_t bar_height = client_title_bar_height(c);
 
 #ifdef XWAYLAND
 	if (client_is_x11(c)) {
@@ -877,12 +888,16 @@ void client_set_size_bound(Client *c) {
 
 		if ((uint32_t)c->geom.width - 2 * c->bw < (uint32_t)min_w && min_w > 0)
 			c->geom.width = min_w + 2 * c->bw;
-		if ((uint32_t)c->geom.height - 2 * c->bw < (uint32_t)min_h && min_h > 0)
-			c->geom.height = min_h + 2 * c->bw;
+		if ((uint32_t)c->geom.height - 2 * c->bw - bar_height <
+				(uint32_t)min_h &&
+			min_h > 0)
+			c->geom.height = min_h + 2 * c->bw + bar_height;
 		if ((uint32_t)c->geom.width - 2 * c->bw > (uint32_t)max_w && max_w > 0)
 			c->geom.width = max_w + 2 * c->bw;
-		if ((uint32_t)c->geom.height - 2 * c->bw > (uint32_t)max_h && max_h > 0)
-			c->geom.height = max_h + 2 * c->bw;
+		if ((uint32_t)c->geom.height - 2 * c->bw - bar_height >
+				(uint32_t)max_h &&
+			max_h > 0)
+			c->geom.height = max_h + 2 * c->bw + bar_height;
 		return;
 	}
 #endif
@@ -893,17 +908,17 @@ void client_set_size_bound(Client *c) {
 		state.min_width > 0) {
 		c->geom.width = state.min_width + 2 * c->bw;
 	}
-	if ((uint32_t)c->geom.height - 2 * c->bw < state.min_height &&
+	if ((uint32_t)c->geom.height - 2 * c->bw - bar_height < state.min_height &&
 		state.min_height > 0) {
-		c->geom.height = state.min_height + 2 * c->bw;
+		c->geom.height = state.min_height + 2 * c->bw + bar_height;
 	}
 	if ((uint32_t)c->geom.width - 2 * c->bw > state.max_width &&
 		state.max_width > 0) {
 		c->geom.width = state.max_width + 2 * c->bw;
 	}
-	if ((uint32_t)c->geom.height - 2 * c->bw > state.max_height &&
+	if ((uint32_t)c->geom.height - 2 * c->bw - bar_height > state.max_height &&
 		state.max_height > 0) {
-		c->geom.height = state.max_height + 2 * c->bw;
+		c->geom.height = state.max_height + 2 * c->bw + bar_height;
 	}
 }
 
@@ -1523,6 +1538,7 @@ void apply_rule_properties(Client *c, const ConfigWinRule *r) {
 	APPLY_INT_PROP(c, r, no_border);
 	APPLY_INT_PROP(c, r, no_shadow);
 	APPLY_INT_PROP(c, r, no_radius);
+	APPLY_INT_PROP(c, r, no_title_bar);
 	APPLY_INT_PROP(c, r, no_animation);
 	APPLY_INT_PROP(c, r, isopensilent);
 	APPLY_INT_PROP(c, r, istagsilent);
@@ -2252,11 +2268,15 @@ static void client_insert_tiling_order(Client *c) {
 }
 
 static void client_configure_size(Client *c, struct wlr_box geo, int32_t bw) {
-	if ((int32_t)geo.width <= 2 * bw || (int32_t)geo.height <= 2 * bw)
+	int32_t bar_height = client_title_bar_height(c);
+
+	if ((int32_t)geo.width <= 2 * bw ||
+		(int32_t)geo.height <= 2 * bw + bar_height)
 		return;
 
 	client_set_size(c, (uint32_t)((int32_t)geo.width - 2 * bw),
-					(uint32_t)((int32_t)geo.height - 2 * bw), false);
+					(uint32_t)((int32_t)geo.height - 2 * bw - bar_height),
+					false);
 }
 
 static void client_negotiate_initial_size(Client *c, Monitor *rule_mon,
@@ -2418,6 +2438,8 @@ void handle_client_map(struct wl_listener *listener, void *data) {
 											 config.border_radius_exponent));
 	wlr_scene_node_set_enabled(&c->border->node, true);
 
+	client_add_title_bar(c);
+
 	c->shadow =
 		wlr_scene_shadow_create(c->scene, 0, 0, config.border_radius,
 								config.shadows_blur, config.shadowscolor);
@@ -2470,7 +2492,8 @@ static bool client_xdg_size_pending(Client *c) {
 	struct wlr_xdg_toplevel_state *state = &c->surface.xdg->toplevel->current;
 
 	return state->width != (int32_t)(c->geom.width - 2 * (int32_t)c->bw) ||
-		   state->height != (int32_t)(c->geom.height - 2 * (int32_t)c->bw);
+		   state->height != (int32_t)(c->geom.height - 2 * (int32_t)c->bw -
+									  client_title_bar_height(c));
 }
 
 void handle_client_commit(struct wl_listener *listener, void *data) {
@@ -2712,6 +2735,7 @@ void handle_client_unmap(struct wl_listener *listener, void *data) {
 		c->jump_label_node = NULL;
 	}
 
+	client_remove_title_bar(c);
 	client_remove_group_bar(c);
 	client_remove_tab_bar(c);
 
@@ -2837,6 +2861,7 @@ void handle_client_set_title(struct wl_listener *listener, void *data) {
 	const char *title = client_get_title(c);
 	client_update_group_bar_title(c);
 	client_update_tab_bar_title(c);
+	client_update_title_bar_title(c);
 	title_message_bar_update_title(c);
 
 	struct wayland_string wayland_title;
@@ -2931,8 +2956,24 @@ void scene_buffer_apply_opacity(struct wlr_scene_buffer *buffer, int32_t sx,
 
 void client_set_opacity(Client *c, double opacity) {
 	opacity = CLAMP_FLOAT(opacity, 0.0f, 1.0f);
+
+	/* Recorded here rather than at the call sites: the ring has no opacity of
+	 * its own and derives it from this value in client_set_border_color(). */
+	c->opacity_animation.current_opacity = opacity;
+
 	wlr_scene_node_for_each_buffer(&c->scene_surface->node,
 								   scene_buffer_apply_opacity, &opacity);
+
+	/* The bar sits outside the surface subtree and its background is a scene
+	 * rect with no opacity: fade it explicitly or it stays opaque while the
+	 * surface fades up behind it. */
+	if (c->title_bar) {
+		mango_bar_decoration_set_opacity(c->title_bar, opacity);
+	}
+
+	/* The ring is one as well - left at full alpha it pops into view before the
+	 * fading surface behind it, so apply its fade from here. */
+	client_set_border_color(c, c->opacity_animation.current_border_color);
 }
 
 void client_ensure_constraint(Client *c) {
@@ -4199,8 +4240,9 @@ void client_update_oldmonname_record(Client *c, Monitor *m) {
 
 void client_set_bounds(Client *c, struct wlr_box *bbox) {
 	/* set minimum possible */
+	int32_t min_height = 1 + 2 * (int32_t)c->bw + client_title_bar_height(c);
 	c->geom.width = MANGO_MAX(1 + 2 * (int32_t)c->bw, c->geom.width);
-	c->geom.height = MANGO_MAX(1 + 2 * (int32_t)c->bw, c->geom.height);
+	c->geom.height = MANGO_MAX(min_height, c->geom.height);
 
 	if (c->geom.x >= bbox->x + bbox->width)
 		c->geom.x = bbox->x + bbox->width - c->geom.width;
@@ -4496,6 +4538,125 @@ void client_remove_group_bar(Client *c) {
 	}
 	mango_bar_decoration_destroy(c->group_bar);
 	c->group_bar = NULL;
+}
+
+/*
+ * Title bar.
+ *
+ * The bar is a child of the client's own scene tree, drawn inside the top of
+ * the frame: the surface is pushed down by the bar height and the border rect
+ * wraps both as one piece. `client_title_bar_height()` is the single source of
+ * truth for that height; everything that turns a frame geometry into a surface
+ * geometry has to subtract it.
+ */
+/* Whether the window should currently show a title bar, independent of scene
+ * node state so the geometry math never lags a frame. */
+bool client_wants_title_bar(Client *c) {
+	if (!c || config.title_bar_height <= 0)
+		return false;
+	if (c->no_title_bar)
+		return false;
+	/* A maximized window keeps its bar, otherwise the traffic lights that
+	 * restored it would be gone. Fullscreen hides all decorations. */
+	if (c->isfullscreen)
+		return false;
+	if (client_is_unmanaged(c) || client_is_x11_popup(c))
+		return false;
+	if (c->mon && c->mon->isoverview)
+		return false;
+	return true;
+}
+
+int32_t client_title_bar_height(Client *c) {
+	if (!c || !c->title_bar || !client_wants_title_bar(c))
+		return 0;
+
+	/* Clamped to fit: callers read it both to position and size the surface,
+	 * and the frame must keep one row of surface, hence the -1. */
+	int32_t height = config.title_bar_height > 0 ? config.title_bar_height : 0;
+	int32_t room = c->geom.height - 2 * (int32_t)c->bw - 1;
+
+	return MANGO_MIN(height, MANGO_MAX(room, 0));
+}
+
+void client_add_title_bar(Client *c) {
+	if (!c || c->title_bar || config.title_bar_height <= 0)
+		return;
+
+	c->title_bar = mango_bar_decoration_create(c, TitleBar, false, c->scene,
+											   config.title_bardata, 0, 0);
+	if (!c->title_bar)
+		return;
+
+	/* Bar and surface share the edge pixel; snap the bar out so it owns it -
+	 * see mango_bar_decoration_set_snap_edges(). */
+	mango_bar_decoration_set_snap_edges(c->title_bar, WLR_EDGE_BOTTOM);
+
+	/* The bar must sit above the surface but below nothing else that a
+	 * decoration owns, so raise it over the surface tree. */
+	wlr_scene_node_raise_to_top(&c->title_bar->scene->node);
+	mango_bar_decoration_set_buttons(c->title_bar, true,
+									 config.title_bar_buttons_left != 0,
+									 config.title_bar_buttons_inverse != 0,
+									 (int32_t)config.title_bar_button_size,
+									 (int32_t)config.title_bar_button_gap,
+									 (int32_t)config.title_bar_button_margin);
+	wlr_scene_node_set_enabled(&c->title_bar->scene->node, false);
+
+	client_update_title_bar_title(c);
+}
+
+void client_remove_title_bar(Client *c) {
+	if (!c || !c->title_bar)
+		return;
+	if (server.title_bar_hover == c->title_bar)
+		server.title_bar_hover = NULL;
+	if (server.title_bar_buttons_hover == c->title_bar)
+		server.title_bar_buttons_hover = NULL;
+	if (server.title_bar_drag_client == c) {
+		server.title_bar_drag_client = NULL;
+		server.title_bar_drag_pending = false;
+	}
+	mango_bar_decoration_destroy(c->title_bar);
+	c->title_bar = NULL;
+}
+
+void client_update_title_bar_title(Client *c) {
+	if (!c || !c->title_bar)
+		return;
+
+	float scale = 1.0f;
+	if (c->mon && c->mon->wlr_output)
+		scale = c->mon->wlr_output->scale;
+	else if (server.selected_monitor && server.selected_monitor->wlr_output)
+		scale = server.selected_monitor->wlr_output->scale;
+
+	mango_bar_decoration_update(c->title_bar, client_get_title(c), scale);
+}
+
+void client_update_title_bar_focus(Client *c) {
+	if (!c || !c->title_bar || !c->mon)
+		return;
+
+	/* The same rule get_border_color() applies: focused means the selected
+	 * client of the selected monitor, not of the window's own. */
+	bool focused = server.selected_monitor &&
+				   c->mon == server.selected_monitor &&
+				   c == server.selected_monitor->sel;
+	mango_bar_decoration_set_focus(c->title_bar, focused);
+}
+
+void client_set_title_bar_config(Client *c) {
+	if (!c || !c->title_bar)
+		return;
+
+	mango_bar_decoration_apply_config(c->title_bar, &config.title_bardata);
+	mango_bar_decoration_set_buttons(c->title_bar, true,
+									 config.title_bar_buttons_left != 0,
+									 config.title_bar_buttons_inverse != 0,
+									 (int32_t)config.title_bar_button_size,
+									 (int32_t)config.title_bar_button_gap,
+									 (int32_t)config.title_bar_button_margin);
 }
 
 bool client_group_swap_focus(Client *c) {
@@ -4843,9 +5004,10 @@ void client_get_x11_geometry(Client *c, struct wlr_box *xgeo) {
 		/* Others (non-fullscreen, xwayland_ignore_scale off, unmanaged):
 		 * logical geometry -> physical coordinates, X11 renders 1:1. */
 		xgeo->x = c->geom.x + (int32_t)c->bw;
-		xgeo->y = c->geom.y + (int32_t)c->bw;
+		xgeo->y = c->geom.y + (int32_t)c->bw + client_title_bar_height(c);
 		xgeo->width = c->geom.width - 2 * (int32_t)c->bw;
-		xgeo->height = c->geom.height - 2 * (int32_t)c->bw;
+		xgeo->height =
+			c->geom.height - 2 * (int32_t)c->bw - client_title_bar_height(c);
 		xwayland_logical_to_x11(xgeo, c->xwayland_scale);
 	}
 }
@@ -4974,10 +5136,11 @@ void handle_xwayland_surface_request_configure(struct wl_listener *listener,
 	c->xwl_req_valid = false;
 
 	if (c->isfloating && c != server.grab_client) {
+		int32_t bar_height = client_title_bar_height(c);
 		new_geo.x = new_geo.x - c->bw;
-		new_geo.y = new_geo.y - c->bw;
+		new_geo.y = new_geo.y - c->bw - bar_height;
 		new_geo.width = new_geo.width + c->bw * 2;
-		new_geo.height = new_geo.height + c->bw * 2;
+		new_geo.height = new_geo.height + c->bw * 2 + bar_height;
 		fix_xwayland_coordinate(&new_geo);
 
 		resize(c,

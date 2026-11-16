@@ -122,6 +122,14 @@ void reapply_property(void) {
 			}
 			client_set_group_config(c);
 			client_set_tab_bar_config(c);
+			/* The bar may have been created or removed by this reload
+			 * (e.g. title_bar_height going 0 -> N), so reconcile first. */
+			if (!c->title_bar)
+				client_add_title_bar(c);
+			else if (config.title_bar_height <= 0)
+				client_remove_title_bar(c);
+			client_set_title_bar_config(c);
+			client_update_title_bar_title(c);
 		}
 	}
 }

@@ -21,7 +21,9 @@ typedef struct Arg {
 
 enum { PREV, NEXT };
 enum { MON_PREV = -1, MON_NEXT = -2 };
-enum { FORCE, UNFORCE };
+/* UNFORCE first so it is 0: a zero-initialised Arg means the polite close,
+ * not SIGKILL. */
+enum { UNFORCE, FORCE };
 enum {
 	OVERCIRCLE_PREV = PREV,
 	OVERCIRCLE_NEXT = NEXT,

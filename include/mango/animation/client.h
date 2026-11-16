@@ -8,6 +8,10 @@
 bool client_is_ignore_output_clip(Client *c);
 struct ivec2 compute_edge_offsets(Client *c);
 
+/* Height the title bar occupies in the frame right now (0 when hidden), and
+ * the same clamped to a frame height being drawn (animations shrink frames). */
+void client_title_bar_draw_height(Client *c, int32_t frame_height,
+								  int32_t *bar_height);
 void client_actual_size(Client *client, int32_t *width, int32_t *height);
 void set_rect_size(struct wlr_scene_rect *rect, int32_t width, int32_t height);
 
@@ -16,8 +20,23 @@ struct fx_corner_radii set_client_corner_location(Client *client);
 // Radius the inner edge of the client's border has. Surfaces and the hole cut
 // for them sit inset by the border width, so they need this instead of the
 // outer radius set_client_corner_location() reports.
-struct fx_corner_radii client_inner_corner_location(Client *client,
-		struct fx_corner_radii outer);
+struct fx_corner_radii
+client_inner_corner_location(Client *client, struct fx_corner_radii outer);
+
+// Corners for the client surface itself: same as the inner corners, except the
+// top corners go square while a title bar is drawn - the bar draws that arc.
+// A full-radius arc there would land under the bar and leave a wedge.
+struct fx_corner_radii
+client_surface_corner_location(Client *client, struct fx_corner_radii outer);
+
+// The hole the border cuts for the frame's contents, in frame coordinates.
+// The surface is clipped to it when a title bar pushes it down.
+struct clipped_region client_frame_hole(Client *client, struct ivec2 offsets);
+
+// Where the frame's hole sits relative to the client surface's own tree, i.e.
+// what the surface has to stay inside of. Empty when no title bar pushes the
+// surface down, because then its own corner radius already follows the frame.
+struct clipped_region client_surface_clip(Client *client, struct ivec2 offsets);
 
 bool is_horizontal_stack_layout(Monitor *monitor);
 bool is_horizontal_right_stack_layout(Monitor *monitor);
@@ -31,6 +50,7 @@ void scene_buffer_apply_effect(struct wlr_scene_buffer *buffer, int32_t sx,
 void buffer_set_effect(Client *c, BufferData data);
 
 void client_draw_shadow(Client *c, struct ivec2 offsets);
+void client_draw_title_bar(Client *c);
 void client_draw_group_bar(Client *c, struct ivec2 offsets);
 void global_draw_group_bar(Client *c, int32_t x, int32_t y, int32_t width,
 						   int32_t height);

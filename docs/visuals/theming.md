@@ -86,6 +86,39 @@ You can also color-code windows based on their state:
 | `group_bar_decorate_padding_y` | `0` | vertical padding.|
 | `group_bar_decorate_font_desc` | `monospace Bold 13` | font set.|
 
+### Title Bar
+
+A per-window bar drawn inside the top of the frame, so the window's border
+radius wraps it and the bar and body read as one piece. It carries three
+traffic lights on the left (close, minimize, maximize), with the window title
+centered in the remaining room. Dragging the bar moves the window. Hide it for
+specific windows with the `no_title_bar` window rule. The traffic lights are
+colored while the window is focused, and while the pointer hovers the button
+container.
+
+The rounded corners come from scenefx. Built against plain wlroots the bar is
+still drawn and positioned, but its corners and the window's are square.
+
+The bar has no border and no radius of its own: the window frame's border
+runs around the bar too, and the bar inherits the frame's corner radius, so
+neither is settable here.
+
+| Setting | Default | Description |
+| :--- | :--- | :--- |
+| `title_bar_height` | `30` | Title bar height. Set to `0` to disable title bars. |
+| `title_bar_buttons_left` | `1` | Place the traffic lights on the left (`1`) or the right (`0`). |
+| `title_bar_buttons_inverse` | `0` | Invert the button order. |
+| `title_bar_button_size` | `12` | Traffic light diameter in px. |
+| `title_bar_button_gap` | `8` | Space between two traffic lights in px. |
+| `title_bar_button_margin` | `10` | Traffic light inset from the bar edge in px. |
+| `title_bar_decorate_fg_color` | `0xffffff99` | Text color. |
+| `title_bar_decorate_bg_color` | `0x262626ff` | Background color. |
+| `title_bar_decorate_focus_fg_color` | `0xffffffff` | Text color while focused. |
+| `title_bar_decorate_focus_bg_color` | `0x1e1e1eff` | Background color while focused. |
+| `title_bar_decorate_padding_x` | `0` | Horizontal padding. |
+| `title_bar_decorate_padding_y` | `0` | Vertical padding. |
+| `title_bar_decorate_font_desc` | `sans-serif 9` | Font description. |
+
 ### Auto Tab Bar
 | Setting | Default | Description |
 | :--- | :--- | :--- |
