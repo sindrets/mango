@@ -4,6 +4,7 @@
 #include <cairo.h>
 #include <drm_fourcc.h>
 #include <glib.h>
+#include <math.h>
 #include <pango/pangocairo.h>
 #include <stdlib.h>
 #include <string.h>
@@ -219,6 +220,48 @@ static void text_context_configure(PangoContext *context, cairo_t *cr) {
 	cairo_font_options_destroy(options);
 }
 
+/* Smallest denominator that turns `scale` into an integer, capped at 8. A
+ * logical length that is a multiple of it maps to an exact device length at
+ * every position, because wlr_scene derives a buffer's device box as
+ * round((x + len) * scale) - round(x * scale). */
+static int32_t scale_denominator(float scale) {
+	for (int32_t denom = 1; denom <= 8; denom++) {
+		float product = scale * (float)denom;
+		if (fabsf(product - roundf(product)) < 1e-4f) {
+			return denom;
+		}
+	}
+	return 1;
+}
+
+static int32_t device_length(float scale, int32_t logical) {
+	return (int32_t)lroundf((float)logical * scale);
+}
+
+/* Smallest logical length whose device size holds `pixel` device pixels. */
+static int32_t logical_ceil_to_device(float scale, int32_t pixel) {
+	if (scale <= 0.0f || pixel <= 0) {
+		return 0;
+	}
+	int32_t denom = scale_denominator(scale);
+	int32_t logical = (int32_t)ceilf((float)pixel / scale);
+	int32_t remainder = logical % denom;
+	if (remainder != 0) {
+		logical += denom - remainder;
+	}
+	return logical;
+}
+
+/* Largest logical length whose device size stays within `pixel` device pixels. */
+static int32_t logical_floor_to_device(float scale, int32_t pixel) {
+	if (scale <= 0.0f || pixel <= 0) {
+		return 0;
+	}
+	int32_t denom = scale_denominator(scale);
+	int32_t logical = (int32_t)floorf((float)pixel / scale);
+	return logical - logical % denom;
+}
+
 static void layout_configure(PangoLayout *layout, const char *font_desc,
 							 const char *text) {
 	pango_layout_set_font_description(layout, get_cached_font_desc(font_desc));
@@ -346,8 +389,15 @@ text_surface_create(struct mango_text_measure *measure, const char *font_desc,
 		return NULL;
 	}
 
+	/* The rasterized size has to be a whole number of device pixels that the
+	 * scene will reproduce exactly, or the texture gets resampled. Grow the
+	 * surface to the next size that survives the trip; the extra space is
+	 * transparent. */
+	int32_t surface_w = device_length(scale, logical_ceil_to_device(scale, width));
+	int32_t surface_h = device_length(scale, logical_ceil_to_device(scale, height));
+
 	cairo_surface_t *surface =
-		cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+		cairo_image_surface_create(CAIRO_FORMAT_ARGB32, surface_w, surface_h);
 	if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
 		cairo_surface_destroy(surface);
 		return NULL;
@@ -364,6 +414,8 @@ text_surface_create(struct mango_text_measure *measure, const char *font_desc,
 	pango_cairo_context_set_resolution(context, 96.0 * scale);
 	PangoLayout *layout = pango_layout_new(context);
 	layout_configure(layout, font_desc, text);
+	/* Draw at the origin: the surface only grows on the right and bottom edges,
+	 * so the ink stays on the same device pixel grid it was rasterized for. */
 	cairo_move_to(cr, 0.0, 0.0);
 	cairo_set_source_rgba(cr, color[0], color[1], color[2], color[3]);
 	pango_cairo_show_layout(cr, layout);
@@ -373,8 +425,8 @@ text_surface_create(struct mango_text_measure *measure, const char *font_desc,
 	g_object_unref(context);
 	cairo_destroy(cr);
 
-	*out_pixel_w = width;
-	*out_pixel_h = height;
+	*out_pixel_w = surface_w;
+	*out_pixel_h = surface_h;
 	return surface;
 }
 
@@ -486,18 +538,32 @@ static void text_node_apply_size(struct wlr_scene_buffer *scene_buffer,
 		clip_pixel_h = 0;
 	}
 
-	if (pixel_w > 0 && (clip_pixel_w < pixel_w || clip_pixel_h < pixel_h)) {
+	/* Pick a logical size whose device size is exact and fits inside the segment
+	 * we are allowed to show, then clip the source box to exactly that many
+	 * device pixels. Source and destination then line up 1:1 and the texture is
+	 * never resampled. */
+	int32_t logical_w = logical_floor_to_device(scale, clip_pixel_w);
+	int32_t logical_h = logical_floor_to_device(scale, clip_pixel_h);
+	int32_t src_pixel_w = device_length(scale, logical_w);
+	int32_t src_pixel_h = device_length(scale, logical_h);
+
+	if (src_pixel_w <= 0 || src_pixel_h <= 0) {
+		logical_w = 0;
+		logical_h = 0;
+		src_pixel_w = 0;
+		src_pixel_h = 0;
+	}
+
+	if (pixel_w > 0 && (src_pixel_w < pixel_w || src_pixel_h < pixel_h)) {
 		const struct wlr_fbox box = {
-			.width = clip_pixel_w,
-			.height = clip_pixel_h,
+			.width = src_pixel_w,
+			.height = src_pixel_h,
 		};
 		wlr_scene_buffer_set_source_box(scene_buffer, &box);
 	} else {
 		wlr_scene_buffer_set_source_box(scene_buffer, NULL);
 	}
 
-	int32_t logical_w = (int32_t)(clip_pixel_w / scale + 0.5f);
-	int32_t logical_h = (int32_t)(clip_pixel_h / scale + 0.5f);
 	wlr_scene_buffer_set_dest_size(scene_buffer, logical_w, logical_h);
 
 	*out_logical_w = logical_w;
@@ -1433,7 +1499,11 @@ void mango_bar_decoration_update(MangoBarDecoration *node, const char *text,
 		node->focused ? node->focus_fg_color : node->fg_color;
 
 	int32_t avail_w = bar_decoration_avail_width(node);
-	int32_t avail_pixel_w = (int32_t)(avail_w * scale + 0.5f);
+	/* Compare and ellipsize in the device pixels the layout can actually use.
+	 * An exact logical width is what survives transport, so budgeting against the
+	 * raw scaled width could drop a character that in fact fits. */
+	int32_t avail_exact_w = avail_w - avail_w % scale_denominator(scale);
+	int32_t avail_pixel_w = device_length(scale, avail_exact_w);
 
 	int32_t natural_pixel_w = 0, natural_pixel_h = 0;
 	measure_text(&node->measure, node->font_desc, text, scale, &natural_pixel_w,
