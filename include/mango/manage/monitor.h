@@ -169,6 +169,8 @@ uint32_t get_tags_first_tag(uint32_t source_tags);
 void monitor_copy_tag_layout(Monitor *target, const Monitor *source,
 							 uint32_t tag);
 Monitor *monitor_at_point(double x, double y);
+/* Highest scale among the outputs the box overlaps. */
+float monitor_scale_at_box(const struct wlr_box *box);
 Monitor *get_monitor_nearest_to(int32_t lx, int32_t ly);
 bool match_monitor_spec(char *spec, Monitor *m);
 Monitor *device_target_monitor(struct wlr_input_device *device);

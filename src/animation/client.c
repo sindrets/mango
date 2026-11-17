@@ -574,7 +574,8 @@ void client_draw_title_bar(Client *c) {
 
 	mango_bar_decoration_set_visible(c->title_bar, vis_x, vis_y, vis_w, vis_h);
 
-	mango_bar_decoration_set_size(c->title_bar, width, height);
+	mango_bar_decoration_set_size(c->title_bar, width, height,
+								  monitor_scale_at_box(&bar_box));
 	wlr_scene_node_set_position(&c->title_bar->scene->node, x, y);
 
 	/* The bar's top corners are the frame's hole corners: same arc centre,
@@ -810,7 +811,9 @@ void global_draw_group_bar(Client *c, int32_t x, int32_t y, int32_t width,
 		return;
 
 	wlr_scene_node_set_position(&c->group_bar->scene->node, x, y);
-	mango_bar_decoration_set_size(c->group_bar, width, height);
+	mango_bar_decoration_set_size(
+		c->group_bar, width, height,
+		monitor_scale_at_box(&(struct wlr_box){x, y, width, height}));
 }
 void client_draw_split_border(Client *c, bool hit_no_border,
 							  struct ivec2 offsets) {

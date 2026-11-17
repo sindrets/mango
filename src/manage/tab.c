@@ -373,7 +373,9 @@ void global_draw_tab_bar(Client *c, int32_t x, int32_t y, int32_t width,
 		return;
 
 	wlr_scene_node_set_position(&c->tab_bar->scene->node, x, y);
-	mango_bar_decoration_set_size(c->tab_bar, width, height);
+	mango_bar_decoration_set_size(
+		c->tab_bar, width, height,
+		monitor_scale_at_box(&(struct wlr_box){x, y, width, height}));
 }
 
 void client_draw_tabbar(Client *c, struct ivec2 offsets) {

@@ -21,6 +21,7 @@
 #include "mango/manage/client.h"
 #include "mango/manage/layer.h"
 #include "mango/manage/misc.h"
+#include "mango/manage/tab.h"
 #include "mango/manage/xwayland_primary.h"
 #include <fcntl.h>
 #include <scenefx/scenefx.h>
@@ -282,6 +283,37 @@ Monitor *monitor_at_point(double x, double y) {
 	struct wlr_output *o =
 		wlr_output_layout_output_at(server.output_layout, x, y);
 	return o ? o->data : NULL;
+}
+
+float monitor_scale_at_box(const struct wlr_box *box) {
+	Monitor *m = NULL, *iter;
+
+	if (box) {
+		/* One texture is drawn by every output it touches: a higher bake only
+		 * gets downsampled, never upsampled. */
+		wl_list_for_each(iter, &server.monitors, link) {
+			struct wlr_box hit;
+			if (!iter->wlr_output->enabled || !iter->wlr_output->scale ||
+				!wlr_box_intersection(&hit, box, &iter->m))
+				continue;
+			if (!m || iter->wlr_output->scale > m->wlr_output->scale)
+				m = iter;
+		}
+	}
+
+	if (!m && box) {
+		m = monitor_at_point(box->x, box->y);
+		if (!m)
+			m = monitor_at_point(box->x + box->width / 2.0,
+								 box->y + box->height / 2.0);
+	}
+	if (!m)
+		m = server.selected_monitor;
+
+	if (m && m->wlr_output->scale > 0.0f)
+		return m->wlr_output->scale;
+
+	return 1.0f;
 }
 
 Monitor *get_monitor_nearest_to(int32_t lx, int32_t ly) {
@@ -1181,6 +1213,12 @@ void handle_output_layout_change(struct wl_listener *listener, void *data) {
 					resize(c, c->geom, (ResizeOpts){.interact = 0});
 			}
 #endif
+			/* Re-bakes the bars if this output's scale changed. */
+			if (c->mon == m) {
+				client_update_group_bar_title(c);
+				client_update_tab_bar_title(c);
+				client_update_title_bar_title(c);
+			}
 			// floating window position auto adjust the change of monitor
 			// position
 			if (c->isfloating && c->mon == m) {

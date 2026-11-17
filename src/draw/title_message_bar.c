@@ -146,8 +146,9 @@ static void title_message_bar_refresh(Monitor *m, bool use_animation) {
 		wlr_scene_node_set_enabled(&bar->scene->node, true);
 
 	title_message_bar_set_text(bar, c, m->wlr_output->scale);
-	mango_bar_decoration_set_size(bar, box.width, box.height);
-
+	/* Same scale as title_message_bar_set_text(), to avoid a re-bake. */
+	mango_bar_decoration_set_size(bar, box.width, box.height,
+								  m->wlr_output->scale);
 	wlr_scene_node_set_position(&bar->scene->node, box.x, box.y);
 	if (!was_enabled)
 		wlr_scene_node_raise_to_top(&bar->scene->node);

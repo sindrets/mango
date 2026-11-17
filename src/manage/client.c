@@ -3358,6 +3358,12 @@ void client_set_monitor(Client *c, Monitor *m, uint32_t newtags, bool focus) {
 
 	c->mon = m;
 
+	/* Re-rasterize for the new output's scale. */
+	if (m) {
+		client_update_group_bar_title(c);
+		client_update_tab_bar_title(c);
+		client_update_title_bar_title(c);
+	}
 	/* Scene graph sends surface leave/enter events on move and resize */
 	if (oldmon)
 		arrange(oldmon, false, false);

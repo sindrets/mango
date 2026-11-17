@@ -207,7 +207,7 @@ MangoBarDecoration *mango_bar_decoration_create(void *cdata, uint32_t type,
 												int32_t width, int32_t height);
 void mango_bar_decoration_destroy(MangoBarDecoration *node);
 void mango_bar_decoration_set_size(MangoBarDecoration *node, int32_t width,
-								   int32_t height);
+								   int32_t height, float scale);
 void mango_bar_decoration_update(MangoBarDecoration *node, const char *text,
 								 float scale);
 

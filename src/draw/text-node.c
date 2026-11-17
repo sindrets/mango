@@ -1386,7 +1386,7 @@ static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 }
 
 void mango_bar_decoration_set_size(MangoBarDecoration *node, int32_t width,
-								   int32_t height) {
+								   int32_t height, float scale) {
 	if (!node)
 		return;
 
@@ -1394,18 +1394,21 @@ void mango_bar_decoration_set_size(MangoBarDecoration *node, int32_t width,
 		width = 0;
 	if (height < 0)
 		height = 0;
+	if (scale <= 0.0f)
+		scale = 1.0f;
 
+	/* The texture is baked at `scale`, so geometry equality alone is not
+	 * enough to skip the redraw. */
 	if (node->target_width == width && node->target_height == height &&
-		node->cached_text)
+		node->last_scale == scale && node->cached_text)
 		return;
 
 	node->target_width = width;
 	node->target_height = height;
 
 	const char *redraw_text = node->last_text ? node->last_text : "";
-	float redraw_scale = node->last_scale > 0.0f ? node->last_scale : 1.0f;
 
-	mango_bar_decoration_update(node, redraw_text, redraw_scale);
+	mango_bar_decoration_update(node, redraw_text, scale);
 }
 
 static bool close_button_box(const MangoBarDecoration *node, int32_t *out_x,
