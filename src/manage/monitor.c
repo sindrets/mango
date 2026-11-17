@@ -1177,12 +1177,20 @@ void handle_output_layout_change(struct wl_listener *listener, void *data) {
 	wlr_output_layout_get_box(server.output_layout, NULL,
 							  &server.scene_geometry);
 
+	/* Nothing sits under the background, so it owns the pixels its edges cross
+	 * even where the layout box misses the device grid. */
+	wlr_scene_rect_set_snap_edges(server.root_bg,
+								  WLR_EDGE_LEFT | WLR_EDGE_RIGHT |
+									  WLR_EDGE_TOP | WLR_EDGE_BOTTOM);
 	wlr_scene_node_set_position(&server.root_bg->node, server.scene_geometry.x,
 								server.scene_geometry.y);
 	wlr_scene_rect_set_size(server.root_bg, server.scene_geometry.width,
 							server.scene_geometry.height);
 
 	/* Make sure the clients are hidden when mango is locked */
+	wlr_scene_rect_set_snap_edges(server.locked_bg,
+								  WLR_EDGE_LEFT | WLR_EDGE_RIGHT |
+									  WLR_EDGE_TOP | WLR_EDGE_BOTTOM);
 	wlr_scene_node_set_position(&server.locked_bg->node,
 								server.scene_geometry.x,
 								server.scene_geometry.y);
