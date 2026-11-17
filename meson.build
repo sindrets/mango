@@ -204,6 +204,37 @@ mango_sources = files(run_command(find, 'src', '-name', '*.c', check: true).stdo
 
 mango_inc = include_directories('.', 'include')
 
+# --- relocatable install ------------------------------------------------------
+# The vendored forks are installed next to mango, so the binary has to find them
+# relative to itself rather than through the system loader path. Without this an
+# installed mango cannot start unless the forks are also installed system-wide,
+# which defeats the point of vendoring them.
+#
+# $ORIGIN is the directory of the object doing the loading, so the rpath is
+# derived from the configured bindir/libdir rather than assuming ../lib: a
+# layout with libdir=lib64, or a multiarch libdir, still resolves.
+#
+# Both mango and mmsg link libwlroots directly, so the executable's own rpath is
+# enough to resolve libscenefx's DT_NEEDED on it: glibc maps every DT_NEEDED of
+# the executable before relocating any of them. That is why libscenefx itself
+# needs no rpath here. It would if mango ever stopped linking wlroots directly.
+#
+# An absolute libdir (e.g. -Dlibdir=/usr/lib/x86_64-linux-gnu) cannot be
+# expressed relative to $ORIGIN, so fall back to the absolute path there.
+fs = import('fs')
+bindir_opt = get_option('bindir')
+libdir_opt = get_option('libdir')
+
+if libdir_opt.startswith('/')
+  rel_install_rpath = libdir_opt
+else
+  rel_install_rpath = '$ORIGIN'
+  if bindir_opt != libdir_opt
+    rel_install_rpath += '/'
+    rel_install_rpath += fs.relative_to(libdir_opt, bindir_opt)
+  endif
+endif
+
 executable('mango',
   mango_sources,
 
@@ -227,6 +258,7 @@ executable('mango',
     pangocairo_dep,
   ],
   install : true,
+  install_rpath : rel_install_rpath,
   c_args : c_args,
   link_args : link_args,
 )
@@ -263,6 +295,7 @@ executable('mmsg',
   ],
 
   install: true,
+  install_rpath: rel_install_rpath,
 
   c_args: [
     '-g',

@@ -340,7 +340,24 @@ If your distribution isn't listed above, or you want the latest unreleased chang
    ```
 
    The install step also installs the two fork libraries and their pkg-config
-   files, because mango links them by soname.
+   files, because mango links them by soname. The installed binaries carry an
+   `$ORIGIN`-relative rpath, so they find those libraries next to themselves
+   rather than through the system loader path. That makes the install tree
+   relocatable: it can be copied elsewhere, or installed to a private prefix
+   such as `~/.local`, without the forks being installed system-wide.
+
+   ```bash
+   meson setup build --prefix=$HOME/.local
+   ninja -C build install
+   ```
+
+   The resulting tree is self-contained:
+
+   ```
+   $HOME/.local/bin/{mango,mmsg,mangonag}
+   $HOME/.local/lib/libscenefx-0.5.so.0.5.0
+   $HOME/.local/lib/libwlroots-vkfx-0.20.so
+   ```
 
 ### How the forks are resolved
 
