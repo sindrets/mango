@@ -1379,9 +1379,12 @@ static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 	wlr_scene_rect_set_snap_edges(node->bg, border == 0 ? node->snap_edges
 														: WLR_EDGE_NONE);
 	/* Snapping both edges claims the shared device rows, so the hairline stays
-	 * one solid row at fractional scales. */
+	 * one solid row at fractional scales. A disabled separator must not snap:
+	 * a zero-height box would grow a sliver out of its fractional origin. */
 	wlr_scene_rect_set_snap_edges(node->separator,
-								  WLR_EDGE_TOP | WLR_EDGE_BOTTOM);
+								  node->separator_height > 0
+									  ? WLR_EDGE_TOP | WLR_EDGE_BOTTOM
+									  : WLR_EDGE_NONE);
 #endif
 
 	node->logical_width = width;

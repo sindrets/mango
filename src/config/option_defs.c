@@ -791,6 +791,8 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		} else {
 			convert_hex_to_rgba(config->title_bardata.border_color, color);
 		}
+	} else if (is_title_bar_decorate_key(key, "border_width")) {
+		config->title_bardata.separator_height = CLAMP_INT(atoi(value), 0, 100);
 	} else if (strcmp(key, "tab_bar_decorate_font_desc") == 0) {
 		if (config->tabbardata.font_desc)
 			free((void *)config->tabbardata.font_desc);
@@ -3153,6 +3155,8 @@ void override_config(void) {
 		CLAMP_INT(config.title_bardata.padding_x, 0, 100);
 	config.title_bardata.padding_y =
 		CLAMP_INT(config.title_bardata.padding_y, 0, 100);
+	config.title_bardata.separator_height =
+		CLAMP_INT(config.title_bardata.separator_height, 0, 100);
 
 	config.tabbardata.border_width =
 		CLAMP_INT(config.tabbardata.border_width, 0, 100);

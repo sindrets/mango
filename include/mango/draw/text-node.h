@@ -22,7 +22,8 @@ typedef struct {
 	float border_color[4];
 	int32_t border_width;
 	/* Thickness of a hairline along the bar's bottom edge, colored by
-	 * `border_color`. */
+	 * `border_color`. Set by `title_bar_decorate_border_width`; 0 disables it.
+	 */
 	int32_t separator_height;
 	int32_t corner_radius;
 	int32_t padding_x;
