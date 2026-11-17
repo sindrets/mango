@@ -115,7 +115,7 @@ neither is settable here.
 | `title_bar_decorate_bg_color` | `0x262626ff` | Background color. |
 | `title_bar_decorate_focus_fg_color` | `0xffffffff` | Text color while focused. |
 | `title_bar_decorate_focus_bg_color` | `0x1e1e1eff` | Background color while focused. |
-| `title_bar_decorate_border_color` | `0x444444ff` | Color of the separator drawn between the title bar and the window content. |
+| `title_bar_decorate_border_color` | `0xffffff08` | Color of the separator drawn between the title bar and the window content. |
 | `title_bar_decorate_border_width` | `1` | Separator thickness in px. Set to `0` to disable the separator. |
 | `title_bar_decorate_padding_x` | `0` | Horizontal padding. |
 | `title_bar_decorate_padding_y` | `0` | Vertical padding. |

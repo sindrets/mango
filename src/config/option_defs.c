@@ -2780,10 +2780,10 @@ void set_value_default() {
 	config.title_bardata.focus_bg_color[1] = 0x1e / 255.0f;
 	config.title_bardata.focus_bg_color[2] = 0x1e / 255.0f;
 	config.title_bardata.focus_bg_color[3] = 1.0f;
-	config.title_bardata.border_color[0] = 0x44 / 255.0f;
-	config.title_bardata.border_color[1] = 0x44 / 255.0f;
-	config.title_bardata.border_color[2] = 0x44 / 255.0f;
-	config.title_bardata.border_color[3] = 1.0f;
+	config.title_bardata.border_color[0] = 0xff / 255.0f;
+	config.title_bardata.border_color[1] = 0xff / 255.0f;
+	config.title_bardata.border_color[2] = 0xff / 255.0f;
+	config.title_bardata.border_color[3] = 0x08 / 255.0f;
 	config.title_bardata.separator_height = 1;
 
 	config.tabbardata.fg_color[0] = 0xc0 / 255.0f;
