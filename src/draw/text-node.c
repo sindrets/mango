@@ -824,10 +824,12 @@ MangoBarDecoration *mango_bar_decoration_create(void *cdata, uint32_t type,
 	mangobar->border =
 		wlr_scene_rect_create(mangobar->scene, 0, 0, (float[4]){0});
 	mangobar->bg = wlr_scene_rect_create(mangobar->scene, 0, 0, (float[4]){0});
+	mangobar->separator =
+		wlr_scene_rect_create(mangobar->scene, 0, 0, (float[4]){0});
 	mangobar->scene_buffer = wlr_scene_buffer_create(mangobar->scene, NULL);
 	mangobar->close_buffer = wlr_scene_buffer_create(mangobar->scene, NULL);
-	if (!mangobar->border || !mangobar->bg || !mangobar->scene_buffer ||
-		!mangobar->close_buffer) {
+	if (!mangobar->border || !mangobar->bg || !mangobar->separator ||
+		!mangobar->scene_buffer || !mangobar->close_buffer) {
 		wlr_scene_node_destroy(&mangobar->scene->node);
 		free(mangobar);
 		return NULL;
@@ -887,6 +889,7 @@ MangoBarDecoration *mango_bar_decoration_create(void *cdata, uint32_t type,
 	memcpy(mangobar->border_color, data.border_color,
 		   sizeof(mangobar->border_color));
 	mangobar->border_width = data.border_width;
+	mangobar->separator_height = data.separator_height;
 	mangobar->corner_radius = data.corner_radius;
 	mangobar->padding_x = data.padding_x;
 	mangobar->padding_y = data.padding_y;
@@ -1287,6 +1290,7 @@ static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 	if (avail_w <= 0 || avail_h <= 0) {
 		text_node_clear(node->scene_buffer, &node->buffer, node->border,
 						node->bg);
+		wlr_scene_rect_set_size(node->separator, 0, 0);
 		node->cached_scale = -1.0f;
 		node->cached_clip_pixel_w = -1;
 		node->text_logical_w = 0;
@@ -1350,6 +1354,23 @@ static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 		wlr_scene_rect_set_size(node->border, 0, 0);
 		rect_apply(node->bg, faded_bg, outer, box_x, box_y, box_w, box_h);
 	}
+
+	/* Sits at the bar's full height, not the clipped box: a bar sliding off
+	 * its output must not drag the line along with it. */
+	int32_t bar_inner_h = height - 2 * border;
+	int32_t separator_h = node->separator_height;
+	if (separator_h > bar_inner_h) {
+		separator_h = bar_inner_h;
+	}
+	if (separator_h > 0 && inner_w > 0) {
+		float faded_separator[4];
+		bar_faded_color(node, node->border_color, faded_separator);
+		rect_apply(node->separator, faded_separator, corner_radii_all(0),
+				   box_x + border, border + bar_inner_h - separator_h, inner_w,
+				   separator_h);
+	} else {
+		wlr_scene_rect_set_size(node->separator, 0, 0);
+	}
 #if TEXT_NODE_CORNER_RADIUS
 	/* Only the outermost rect may snap; snapping an inset one would push it
 	 * over its border. */
@@ -1357,6 +1378,10 @@ static void bar_decoration_apply_geometry(MangoBarDecoration *node) {
 		wlr_scene_rect_set_snap_edges(node->border, node->snap_edges);
 	wlr_scene_rect_set_snap_edges(node->bg, border == 0 ? node->snap_edges
 														: WLR_EDGE_NONE);
+	/* Snapping both edges claims the shared device rows, so the hairline stays
+	 * one solid row at fractional scales. */
+	wlr_scene_rect_set_snap_edges(node->separator,
+								  WLR_EDGE_TOP | WLR_EDGE_BOTTOM);
 #endif
 
 	node->logical_width = width;
@@ -1871,6 +1896,7 @@ void mango_bar_decoration_apply_config(MangoBarDecoration *node,
 		   sizeof(node->focus_bg_color));
 	memcpy(node->border_color, data->border_color, sizeof(node->border_color));
 	node->border_width = data->border_width;
+	node->separator_height = data->separator_height;
 	node->corner_radius = data->corner_radius;
 	node->padding_x = data->padding_x;
 	node->padding_y = data->padding_y;

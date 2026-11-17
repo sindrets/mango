@@ -780,6 +780,17 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		config->title_bardata.padding_x = CLAMP_INT(atoi(value), 0, 100);
 	} else if (is_title_bar_decorate_key(key, "padding_y")) {
 		config->title_bardata.padding_y = CLAMP_INT(atoi(value), 0, 100);
+	} else if (is_title_bar_decorate_key(key, "border_color")) {
+		int64_t color = parse_color(value);
+		if (color == -1) {
+			mango_error(false, WLR_ERROR,
+						"Invalid title_bar_decorate_border_color "
+						"format: \033[1m\033[31m%s\033[0m\n",
+						value);
+			return false;
+		} else {
+			convert_hex_to_rgba(config->title_bardata.border_color, color);
+		}
 	} else if (strcmp(key, "tab_bar_decorate_font_desc") == 0) {
 		if (config->tabbardata.font_desc)
 			free((void *)config->tabbardata.font_desc);
@@ -2767,6 +2778,11 @@ void set_value_default() {
 	config.title_bardata.focus_bg_color[1] = 0x1e / 255.0f;
 	config.title_bardata.focus_bg_color[2] = 0x1e / 255.0f;
 	config.title_bardata.focus_bg_color[3] = 1.0f;
+	config.title_bardata.border_color[0] = 0x44 / 255.0f;
+	config.title_bardata.border_color[1] = 0x44 / 255.0f;
+	config.title_bardata.border_color[2] = 0x44 / 255.0f;
+	config.title_bardata.border_color[3] = 1.0f;
+	config.title_bardata.separator_height = 1;
 
 	config.tabbardata.fg_color[0] = 0xc0 / 255.0f;
 	config.tabbardata.fg_color[1] = 0xca / 255.0f;

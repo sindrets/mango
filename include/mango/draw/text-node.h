@@ -21,6 +21,9 @@ typedef struct {
 	float focus_bg_color[4];
 	float border_color[4];
 	int32_t border_width;
+	/* Thickness of a hairline along the bar's bottom edge, colored by
+	 * `border_color`. */
+	int32_t separator_height;
 	int32_t corner_radius;
 	int32_t padding_x;
 	int32_t padding_y;
@@ -103,6 +106,8 @@ typedef struct MangoBarDecoration {
 	struct wlr_scene_tree *scene;
 	struct wlr_scene_rect *border;
 	struct wlr_scene_rect *bg;
+	/* Hairline along the bar's bottom edge. Zero size when disabled. */
+	struct wlr_scene_rect *separator;
 	struct wlr_scene_buffer *scene_buffer;
 	struct mango_text_buffer *buffer;
 	void *node_data;
@@ -114,6 +119,7 @@ typedef struct MangoBarDecoration {
 	float focus_bg_color[4];
 	float border_color[4];
 	int32_t border_width;
+	int32_t separator_height;
 	int32_t corner_radius;
 	int32_t padding_x;
 	int32_t padding_y;
