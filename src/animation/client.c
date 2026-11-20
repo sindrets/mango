@@ -13,6 +13,7 @@
 #include <math.h>
 #include <scenefx/types/wlr_scene.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_seat.h>
@@ -289,16 +290,11 @@ void scene_buffer_apply_effect(struct wlr_scene_buffer *buffer, int32_t sx,
 							   int32_t sy, void *data) {
 	BufferData *buffer_data = (BufferData *)data;
 
-	if (buffer_data->should_scale && buffer_data->height_scale < 1 &&
-		buffer_data->width_scale < 1)
-		buffer_data->should_scale = false;
-
-	if (buffer_data->should_scale && buffer_data->height_scale == 1 &&
-		buffer_data->width_scale < 1)
-		buffer_data->should_scale = false;
-
-	if (buffer_data->should_scale && buffer_data->height_scale < 1 &&
-		buffer_data->width_scale == 1)
+	// Only scale a shrinking buffer. A growing window will quickly re-commit to
+	// fill the space the window frame grows into. Scaling in that case just
+	// causes unnecessary visual jolt.
+	if (buffer_data->should_scale &&
+		(buffer_data->width_scale < 1 || buffer_data->height_scale < 1))
 		buffer_data->should_scale = false;
 
 	struct wlr_scene_surface *scene_surface =
